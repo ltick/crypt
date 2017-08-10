@@ -27,6 +27,12 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/ltick/crypt"
+  packages = ["backend","backend/consul","backend/etcd","backend/memcache","backend/mock","backend/zookeeper","encoding/secconf"]
+  revision = "cb824616ab590f2faf13e887687734e707ba54d4"
+
+[[projects]]
+  branch = "master"
   name = "github.com/samuel/go-zookeeper"
   packages = ["zk"]
   revision = "8ac67fae881ed12e87206ba2243c75b079b419a4"
@@ -36,12 +42,6 @@
   name = "github.com/ugorji/go"
   packages = ["codec"]
   revision = "5efa3251c7f7d05e5d9704a69a984ec9f1386a40"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/xordataexchange/crypt"
-  packages = ["backend","backend/consul","backend/etcd","backend/mock","encoding/secconf"]
-  revision = "b2862e3d0a775f18c7cfe02273500ae307b61218"
 
 [[projects]]
   branch = "master"
@@ -58,6 +58,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "7f0817228446fbb56f62c8cff7aef9f3c244cdd70399e66a7e22543594468e66"
+  inputs-digest = "01f00c33d37a56e37bbd27ab8ad07547140261c9bac930b42bfeeeb023b9efda"
   solver-name = "gps-cdcl"
   solver-version = 1
