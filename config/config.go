@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"io"
 	"io/ioutil"
+	"time"
 
-	"github.com/xordataexchange/crypt/backend"
-	"github.com/xordataexchange/crypt/backend/consul"
-	"github.com/xordataexchange/crypt/backend/etcd"
-	"github.com/xordataexchange/crypt/encoding/secconf"
+	"github.com/ltick/crypt/backend"
+	"github.com/ltick/crypt/backend/consul"
+	"github.com/ltick/crypt/backend/etcd"
+	"github.com/ltick/crypt/backend/memcache"
+	"github.com/ltick/crypt/backend/zookeeper"
+	"github.com/ltick/crypt/encoding/secconf"
 )
 
 type KVPair struct {
@@ -65,6 +68,26 @@ func NewStandardConsulConfigManager(machines []string) (ConfigManager, error) {
 	return NewStandardConfigManager(store)
 }
 
+// NewStandardMemcacheConfigManager returns a new ConfigManager backed by memcache.
+// Data will be encrypted.
+func NewStandardMemcacheConfigManager(machines []string) (ConfigManager, error) {
+	store, err := zookeeper.New(machines)
+	if err != nil {
+		return nil, err
+	}
+	return NewStandardConfigManager(store)
+}
+
+// NewZookeeperConfigManager returns a new ConfigManager backed by zookeeper.
+// Data will be encrypted.
+func NewStandardZookeeperConfigManager(machines []string, user string, password string) (ConfigManager, error) {
+	store, err := zookeeper.New(machines, user, password)
+	if err != nil {
+		return nil, err
+	}
+	return NewStandardConfigManager(store)
+}
+
 // NewEtcdConfigManager returns a new ConfigManager backed by etcd.
 // Data will be encrypted.
 func NewEtcdConfigManager(machines []string, keystore io.Reader) (ConfigManager, error) {
@@ -79,6 +102,26 @@ func NewEtcdConfigManager(machines []string, keystore io.Reader) (ConfigManager,
 // Data will be encrypted.
 func NewConsulConfigManager(machines []string, keystore io.Reader) (ConfigManager, error) {
 	store, err := consul.New(machines)
+	if err != nil {
+		return nil, err
+	}
+	return NewConfigManager(store, keystore)
+}
+
+// NewMemcacheConfigManager returns a new ConfigManager backed by memcache.
+// Data will be encrypted.
+func NewMemcacheConfigManager(machines []string, keystore io.Reader) (ConfigManager, error) {
+	store, err := zookeeper.New(machines)
+	if err != nil {
+		return nil, err
+	}
+	return NewConfigManager(store, keystore)
+}
+
+// NewZookeeperConfigManager returns a new ConfigManager backed by zookeeper.
+// Data will be encrypted.
+func NewZookeeperConfigManager(machines []string, user string, password string, keystore io.Reader) (ConfigManager, error) {
+	store, err := zookeeper.New(machines, user, password)
 	if err != nil {
 		return nil, err
 	}

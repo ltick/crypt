@@ -8,10 +8,10 @@ import (
 	"log"
 	"os"
 
-	"github.com/xordataexchange/crypt/backend"
-	"github.com/xordataexchange/crypt/backend/consul"
-	"github.com/xordataexchange/crypt/backend/etcd"
-	"github.com/xordataexchange/crypt/encoding/secconf"
+	"github.com/ltick/crypt/backend"
+	"github.com/ltick/crypt/backend/consul"
+	"github.com/ltick/crypt/backend/etcd"
+	"github.com/ltick/crypt/encoding/secconf"
 )
 
 func getCmd(flagset *flag.FlagSet) {
