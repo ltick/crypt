@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	"crypt/backend"
+	"github.com/ltick/crypt/backend"
 )
 
 type Client struct{

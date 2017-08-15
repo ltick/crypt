@@ -8,9 +8,7 @@ import (
 
 	"errors"
 
-	"crypt/backend"
-	"crypt/config"
-	"fmt"
+	"github.com/ltick/crypt/backend"
 	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/samuel/go-zookeeper/zk"
 )
