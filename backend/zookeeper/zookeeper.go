@@ -1,15 +1,12 @@
 package zookeeper
 
 import (
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"errors"
 
 	"github.com/ltick/crypt/backend"
-	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/samuel/go-zookeeper/zk"
 )
 
@@ -28,7 +25,7 @@ func New(machines []string, user string, password string) (*Client, error) {
 	}
 	client, _, err := zk.Connect(machines, connectTimeout)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	c := &Client{
 		client:   client,
@@ -37,7 +34,7 @@ func New(machines []string, user string, password string) (*Client, error) {
 		errors:   make(chan error, 1),
 	}
 	if err = c.addAuth(); err != nil {
-		return err
+		return nil, err
 	}
 	go func() {
 		for {
