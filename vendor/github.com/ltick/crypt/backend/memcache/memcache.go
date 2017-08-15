@@ -5,10 +5,10 @@ import (
 	"path"
 	"strings"
 	"time"
+	"fmt"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	"crypt/backend"
-	"fmt"
+	"github.com/ltick/crypt/backend"
 )
 
 type Client struct{

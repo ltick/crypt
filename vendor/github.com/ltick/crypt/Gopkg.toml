@@ -24,3 +24,7 @@
 [[constraint]]
   branch = "master"
   name = "github.com/armon/consul-api"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/ltick/crypt"
