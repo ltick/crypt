@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"io/ioutil"
-	"time"
 
 	"github.com/ltick/crypt/backend"
 	"github.com/ltick/crypt/backend/consul"
@@ -71,7 +70,7 @@ func NewStandardConsulConfigManager(machines []string) (ConfigManager, error) {
 // NewStandardMemcacheConfigManager returns a new ConfigManager backed by memcache.
 // Data will be encrypted.
 func NewStandardMemcacheConfigManager(machines []string) (ConfigManager, error) {
-	store, err := zookeeper.New(machines)
+	store, err := memcache.New(machines)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +110,7 @@ func NewConsulConfigManager(machines []string, keystore io.Reader) (ConfigManage
 // NewMemcacheConfigManager returns a new ConfigManager backed by memcache.
 // Data will be encrypted.
 func NewMemcacheConfigManager(machines []string, keystore io.Reader) (ConfigManager, error) {
-	store, err := zookeeper.New(machines)
+	store, err := memcache.New(machines)
 	if err != nil {
 		return nil, err
 	}
