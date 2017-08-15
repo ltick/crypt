@@ -1,9 +1,6 @@
 package memcache
 
 import (
-	"errors"
-	"path"
-	"strings"
 	"time"
 	"fmt"
 
@@ -46,7 +43,7 @@ func (c *Client) Set(key string, value []byte) error {
 	}
 	err := c.client.Set(item)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	return nil
 }
