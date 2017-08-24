@@ -30,9 +30,9 @@
   name = "github.com/ltick/crypt"
   packages = ["backend","backend/consul","backend/etcd","backend/memcache","backend/mock","backend/zookeeper","encoding/secconf"]
 <<<<<<< HEAD
-  revision = "a65c6dbb81f4c6f1e5c416a8c665955867a112df"
+  revision = "46dd54320d0cf2d6a881084da875290b992295c5"
 =======
-  revision = "0ec1e0faef1f4757434a30eeb8e4f219981c7a3e"
+  revision = "c7b4ad8d95670b6d7e26f6e42c42bc40877ff5af"
 >>>>>>> parent of 1f3db32... update
 
 [[projects]]
