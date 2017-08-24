@@ -29,7 +29,11 @@
   branch = "master"
   name = "github.com/ltick/crypt"
   packages = ["backend","backend/consul","backend/etcd","backend/memcache","backend/mock","backend/zookeeper","encoding/secconf"]
+<<<<<<< HEAD
   revision = "46dd54320d0cf2d6a881084da875290b992295c5"
+=======
+  revision = "c7b4ad8d95670b6d7e26f6e42c42bc40877ff5af"
+>>>>>>> parent of 1f3db32... update
 
 [[projects]]
   branch = "master"
