@@ -19,36 +19,41 @@ type Client struct {
 	errors   chan error
 }
 
+var client *Client
+
 func New(machines []string, user string, password string) (*Client, error) {
-	for index, machine := range machines {
-		machines[index] = strings.TrimSpace(machine)
-	}
-	client, _, err := zk.Connect(machines, connectTimeout)
-	if err != nil {
-		return nil, err
-	}
-	c := &Client{
-		client:   client,
-		user:     user,
-		password: password,
-		errors:   make(chan error, 1),
-	}
-	if err = c.addAuth(); err != nil {
-		return nil, err
-	}
-	go func() {
-		for {
-			select {
-			case err := <-c.errors:
-				if err == zk.ErrSessionExpired {
-					c.addAuth()
-				} else {
-					//log
-				}
-			}
-		}
-	}()
-	return c, nil
+    if client != nil {
+        return client, nil
+    }
+    for index, machine := range machines {
+        machines[index] = strings.TrimSpace(machine)
+    }
+    zkClient, _, err := zk.Connect(machines, connectTimeout)
+    if err != nil {
+        return nil, err
+    }
+    client = &Client{
+        client:   zkClient,
+        user:     user,
+        password: password,
+        errors:   make(chan error, 1),
+    }
+    if err = client.addAuth(); err != nil {
+        return nil, err
+    }
+    go func() {
+        for {
+            select {
+            case err := <-client.errors:
+                if err == zk.ErrSessionExpired {
+                    client.addAuth()
+                } else {
+                    //log
+                }
+            }
+        }
+    }()
+    return client, nil
 }
 
 func (c *Client) Get(key string) ([]byte, error) {
