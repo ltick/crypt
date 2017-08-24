@@ -13,14 +13,13 @@ import (
 var connectTimeout time.Duration = 120 * time.Second
 
 type Client struct {
-	client    *zk.Conn
-	keyPrefix string
-	user      string
-	password  string
-	errors    chan error
+	client   *zk.Conn
+	user     string
+	password string
+	errors   chan error
 }
 
-func New(machines []string, keyPrefix string, user string, password string) (*Client, error) {
+func New(machines []string, user string, password string) (*Client, error) {
 	for index, machine := range machines {
 		machines[index] = strings.TrimSpace(machine)
 	}
@@ -29,11 +28,10 @@ func New(machines []string, keyPrefix string, user string, password string) (*Cl
 		return nil, err
 	}
 	c := &Client{
-		client:    client,
-		keyPrefix: keyPrefix,
-		user:      user,
-		password:  password,
-		errors:    make(chan error, 1),
+		client:   client,
+		user:     user,
+		password: password,
+		errors:   make(chan error, 1),
 	}
 	if err = c.addAuth(); err != nil {
 		return nil, err
@@ -54,9 +52,6 @@ func New(machines []string, keyPrefix string, user string, password string) (*Cl
 }
 
 func (c *Client) Get(key string) ([]byte, error) {
-	if c.keyPrefix != "" {
-		key = strings.TrimRight(c.keyPrefix, "/") + "/" + key
-	}
 	value, _, err := c.client.Get(key)
 	if err != nil {
 		c.errors <- err
@@ -71,9 +66,6 @@ func (c *Client) List(key string) (backend.KVPairs, error) {
 }
 
 func (c *Client) Set(key string, value []byte) error {
-	if c.keyPrefix != "" {
-		key = strings.TrimRight(c.keyPrefix, "/") + "/" + key
-	}
 	value, stat, err := c.client.Get(key)
 	if err != nil {
 		if err == zk.ErrNoNode {
@@ -94,9 +86,6 @@ func (c *Client) Set(key string, value []byte) error {
 }
 
 func (c *Client) Watch(key string, stop chan bool) <-chan *backend.Response {
-	if c.keyPrefix != "" {
-		key = strings.TrimRight(c.keyPrefix, "/") + "/" + key
-	}
 	respChan := make(chan *backend.Response, 0)
 	go func() {
 		exists, _, event, err := c.client.ExistsW(key)

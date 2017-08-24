@@ -79,8 +79,8 @@ func NewStandardMemcacheConfigManager(machines []string) (ConfigManager, error) 
 
 // NewStandardZookeeperConfigManager returns a new ConfigManager backed by zookeeper.
 // Data will be encrypted.
-func NewStandardZookeeperConfigManager(machines []string, keyPrefix string, user string, password string) (ConfigManager, error) {
-	store, err := zookeeper.New(machines, keyPrefix, user, password)
+func NewStandardZookeeperConfigManager(machines []string, user string, password string) (ConfigManager, error) {
+	store, err := zookeeper.New(machines, user, password)
 	if err != nil {
 		return nil, err
 	}
@@ -119,8 +119,8 @@ func NewMemcacheConfigManager(machines []string, keystore io.Reader) (ConfigMana
 
 // NewZookeeperConfigManager returns a new ConfigManager backed by zookeeper.
 // Data will be encrypted.
-func NewZookeeperConfigManager(machines []string, keyPrefix string, user string, password string, keystore io.Reader) (ConfigManager, error) {
-	store, err := zookeeper.New(machines, keyPrefix, user, password)
+func NewZookeeperConfigManager(machines []string, user string, password string, keystore io.Reader) (ConfigManager, error) {
+	store, err := zookeeper.New(machines, user, password)
 	if err != nil {
 		return nil, err
 	}
