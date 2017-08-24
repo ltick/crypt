@@ -29,7 +29,7 @@
   branch = "master"
   name = "github.com/ltick/crypt"
   packages = ["backend","backend/consul","backend/etcd","backend/memcache","backend/mock","backend/zookeeper","encoding/secconf"]
-  revision = "a65c6dbb81f4c6f1e5c416a8c665955867a112df"
+  revision = "46dd54320d0cf2d6a881084da875290b992295c5"
 
 [[projects]]
   branch = "master"
