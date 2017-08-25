@@ -71,7 +71,7 @@ func (c *Client) List(key string) (backend.KVPairs, error) {
 }
 
 func (c *Client) Set(key string, value []byte) error {
-	value, stat, err := c.client.Get(key)
+	_, stat, err := c.client.Get(key)
 	if err != nil {
 		if err == zk.ErrNoNode {
 			_, err = c.client.Create(key, value, 0, zk.WorldACL(zk.PermAll))
