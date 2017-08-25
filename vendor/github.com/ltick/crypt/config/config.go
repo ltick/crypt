@@ -17,7 +17,7 @@ type KVPair struct {
 	backend.KVPair
 }
 
-type KVPairs []*KVPair
+type KVPairs []KVPair
 
 type configManager struct {
 	keystore []byte
