@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"errors"
+	"context"
 
 	"github.com/ltick/crypt/backend"
 	"github.com/samuel/go-zookeeper/zk"
@@ -22,38 +23,38 @@ type Client struct {
 var client *Client
 
 func New(machines []string, user string, password string) (*Client, error) {
-    if client != nil {
-        return client, nil
-    }
-    for index, machine := range machines {
-        machines[index] = strings.TrimSpace(machine)
-    }
-    zkClient, _, err := zk.Connect(machines, connectTimeout)
-    if err != nil {
-        return nil, err
-    }
-    client = &Client{
-        client:   zkClient,
-        user:     user,
-        password: password,
-        errors:   make(chan error, 1),
-    }
-    if err = client.addAuth(); err != nil {
-        return nil, err
-    }
-    go func() {
-        for {
-            select {
-            case err := <-client.errors:
-                if err == zk.ErrSessionExpired {
-                    client.addAuth()
-                } else {
-                    //log
-                }
-            }
-        }
-    }()
-    return client, nil
+	if client != nil {
+		return client, nil
+	}
+	for index, machine := range machines {
+		machines[index] = strings.TrimSpace(machine)
+	}
+	zkClient, _, err := zk.Connect(machines, connectTimeout)
+	if err != nil {
+		return nil, err
+	}
+	client = &Client{
+		client:   zkClient,
+		user:     user,
+		password: password,
+		errors:   make(chan error, 1),
+	}
+	if err = client.addAuth(); err != nil {
+		return nil, err
+	}
+	go func() {
+		for {
+			select {
+			case err := <-client.errors:
+				if err == zk.ErrSessionExpired {
+					client.addAuth()
+				} else {
+					//log
+				}
+			}
+		}
+	}()
+	return client, nil
 }
 
 func (c *Client) Get(key string) ([]byte, error) {
@@ -91,30 +92,38 @@ func (c *Client) Set(key string, value []byte) error {
 }
 
 func (c *Client) Watch(key string, stop chan bool) <-chan *backend.Response {
+	return c.WatchWithContext(context.Background(), key, stop)
+}
+
+func (c *Client) WatchWithContext(ctx context.Context, key string, stop chan bool) <-chan *backend.Response {
 	respChan := make(chan *backend.Response, 0)
 	go func() {
-		exists, _, event, err := c.client.ExistsW(key)
-		if !exists {
-			return
-		}
+		value, _, event, err := c.client.GetW(key)
 		if err != nil {
 			respChan <- &backend.Response{nil, err}
+		} else {
+			respChan <- &backend.Response{value, nil}
 		}
+		_, cancel := context.WithCancel(ctx)
 		for {
 			select {
+			case <-stop:
+				c.client.Close()
+				cancel()
+				break
 			case e := <-event:
 				if e.Err != nil {
 					respChan <- &backend.Response{nil, e.Err}
 				}
 				switch e.Type {
 				case zk.EventNodeDataChanged:
-					value, _, err := c.client.Get(key)
+					value, _, event, err = c.client.GetW(key)
 					if err != nil {
 						respChan <- &backend.Response{nil, err}
+					} else {
+						respChan <- &backend.Response{value, nil}
 					}
-					respChan <- &backend.Response{value, nil}
 				}
-				return
 			}
 		}
 	}()
