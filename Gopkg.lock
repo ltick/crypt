@@ -14,10 +14,10 @@
   revision = "1952afaa557dc08e8e0d89eafab110fb501c1a2b"
 
 [[projects]]
+  branch = "master"
   name = "github.com/coreos/etcd"
   packages = ["client","pkg/pathutil","pkg/srv","pkg/types","version"]
-  revision = "bb66589f8cf18960c7f3d56b1b83753caeed9c7a"
-  version = "v3.2.7"
+  revision = "e1e236155c586c5caecf72f1152b90987c0fa8a5"
 
 [[projects]]
   name = "github.com/coreos/go-semver"
@@ -49,15 +49,9 @@
   packages = ["cast5","openpgp","openpgp/armor","openpgp/elgamal","openpgp/errors","openpgp/packet","openpgp/s2k"]
   revision = "81e90905daefcd6fd217b62423c0908922eadb30"
 
-[[projects]]
-  branch = "master"
-  name = "golang.org/x/net"
-  packages = ["context"]
-  revision = "66aacef3dd8a676686c7ae3716979581e8b03c47"
-
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "feb16a6d4db48bc5fe5f1ddadb130bf61d00891d7f9e5a19d78b1ac86499391b"
+  inputs-digest = "273f4210a20a1d91433449e8346749602cdf9aa068163cd10a385bff0bf39c19"
   solver-name = "gps-cdcl"
   solver-version = 1
