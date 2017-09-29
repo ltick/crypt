@@ -28,3 +28,7 @@
 [[constraint]]
   branch = "master"
   name = "github.com/ltick/crypt"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/coreos/etcd"

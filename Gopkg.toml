@@ -27,8 +27,20 @@
 
 [[constraint]]
   branch = "master"
-  name = "github.com/ltick/crypt"
+  name = "github.com/bradfitz/gomemcache"
 
 [[constraint]]
   branch = "master"
   name = "github.com/coreos/etcd"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/ltick/crypt"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/samuel/go-zookeeper"
+
+[[constraint]]
+  branch = "master"
+  name = "golang.org/x/crypto"
