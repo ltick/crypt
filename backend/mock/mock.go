@@ -11,7 +11,9 @@ import (
 
 var mockedStore map[string][]byte
 
-type Client struct{}
+type Client struct{
+	logger backend.Logger
+}
 
 func New(machines []string) (*Client, error) {
 	if mockedStore == nil {
@@ -58,4 +60,8 @@ func (c *Client) Watch(key string, stop chan bool) <-chan *backend.Response {
 		}
 	}()
 	return respChan
+}
+
+func (c *Client) SetLogger(l backend.Logger) {
+	c.logger = l
 }

@@ -1,6 +1,11 @@
 // Package backend provides the K/V store interface for crypt backends.
 package backend
 
+// Logger is an interface that can be implemented to provide custom log output.
+type Logger interface {
+	Printf(string, ...interface{})
+}
+
 // Response represents a response from a backend store.
 type Response struct {
 	Value []byte
@@ -29,4 +34,7 @@ type Store interface {
 
 	// Watch monitors a K/V store for changes to key.
 	Watch(key string, stop chan bool) <-chan *Response
+
+	// SetLogger set logger.
+	SetLogger(l Logger)
 }
