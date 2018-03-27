@@ -33,6 +33,7 @@ import (
 	"github.com/coreos/etcd/pkg/types"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/coreos/etcd/version"
+
 	"github.com/coreos/go-semver/semver"
 )
 
@@ -55,6 +56,7 @@ var (
 		"3.0.0": {streamTypeMsgAppV2, streamTypeMessage},
 		"3.1.0": {streamTypeMsgAppV2, streamTypeMessage},
 		"3.2.0": {streamTypeMsgAppV2, streamTypeMessage},
+		"3.3.0": {streamTypeMsgAppV2, streamTypeMessage},
 	}
 )
 

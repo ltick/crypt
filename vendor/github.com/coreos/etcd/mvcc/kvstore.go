@@ -28,6 +28,7 @@ import (
 	"github.com/coreos/etcd/mvcc/backend"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/coreos/etcd/pkg/schedule"
+
 	"github.com/coreos/pkg/capnslog"
 )
 
@@ -175,16 +176,15 @@ func (s *store) HashByRev(rev int64) (hash uint32, currentRev int64, compactRev 
 		return 0, currentRev, 0, ErrFutureRev
 	}
 
+	if rev == 0 {
+		rev = currentRev
+	}
 	keep := s.kvindex.Keep(rev)
 
 	tx := s.b.ReadTx()
 	tx.Lock()
 	defer tx.Unlock()
 	s.mu.RUnlock()
-
-	if rev == 0 {
-		rev = currentRev
-	}
 
 	upper := revision{main: rev + 1}
 	lower := revision{main: compactRev + 1}
@@ -301,10 +301,13 @@ func (s *store) Restore(b backend.Backend) error {
 }
 
 func (s *store) restore() error {
-	reportDbTotalSizeInBytesMu.Lock()
 	b := s.b
+	reportDbTotalSizeInBytesMu.Lock()
 	reportDbTotalSizeInBytes = func() float64 { return float64(b.Size()) }
 	reportDbTotalSizeInBytesMu.Unlock()
+	reportDbTotalSizeInUseInBytesMu.Lock()
+	reportDbTotalSizeInUseInBytes = func() float64 { return float64(b.SizeInUse()) }
+	reportDbTotalSizeInUseInBytesMu.Unlock()
 
 	min, max := newRevBytes(), newRevBytes()
 	revToBytes(revision{main: 1}, min)

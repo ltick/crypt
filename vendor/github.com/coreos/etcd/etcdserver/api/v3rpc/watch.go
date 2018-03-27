@@ -17,6 +17,7 @@ package v3rpc
 import (
 	"context"
 	"io"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -31,7 +32,7 @@ import (
 type watchServer struct {
 	clusterID int64
 	memberID  int64
-	raftTimer etcdserver.RaftTimer
+	sg        etcdserver.RaftStatusGetter
 	watchable mvcc.WatchableKV
 
 	ag AuthGetter
@@ -41,7 +42,7 @@ func NewWatchServer(s *etcdserver.EtcdServer) pb.WatchServer {
 	return &watchServer{
 		clusterID: int64(s.Cluster().ID()),
 		memberID:  int64(s.ID()),
-		raftTimer: s,
+		sg:        s,
 		watchable: s.Watchable(),
 		ag:        s,
 	}
@@ -57,8 +58,15 @@ var (
 
 func GetProgressReportInterval() time.Duration {
 	progressReportIntervalMu.RLock()
-	defer progressReportIntervalMu.RUnlock()
-	return progressReportInterval
+	interval := progressReportInterval
+	progressReportIntervalMu.RUnlock()
+
+	// add rand(1/10*progressReportInterval) as jitter so that etcdserver will not
+	// send progress notifications to watchers around the same time even when watchers
+	// are created around the same time (which is common when a client restarts itself).
+	jitter := time.Duration(rand.Int63n(int64(interval) / 10))
+
+	return interval + jitter
 }
 
 func SetProgressReportInterval(newTimeout time.Duration) {
@@ -83,7 +91,7 @@ const (
 type serverWatchStream struct {
 	clusterID int64
 	memberID  int64
-	raftTimer etcdserver.RaftTimer
+	sg        etcdserver.RaftStatusGetter
 
 	watchable mvcc.WatchableKV
 
@@ -112,7 +120,7 @@ func (ws *watchServer) Watch(stream pb.Watch_WatchServer) (err error) {
 	sws := serverWatchStream{
 		clusterID: ws.clusterID,
 		memberID:  ws.memberID,
-		raftTimer: ws.raftTimer,
+		sg:        ws.sg,
 
 		watchable: ws.watchable,
 
@@ -140,6 +148,11 @@ func (ws *watchServer) Watch(stream pb.Watch_WatchServer) (err error) {
 	// deadlock when calling sws.close().
 	go func() {
 		if rerr := sws.recvLoop(); rerr != nil {
+			if isClientCtxErr(stream.Context().Err(), rerr) {
+				plog.Debugf("failed to receive watch request from gRPC stream (%q)", rerr.Error())
+			} else {
+				plog.Warningf("failed to receive watch request from gRPC stream (%q)", rerr.Error())
+			}
 			errc <- rerr
 		}
 	}()
@@ -204,7 +217,7 @@ func (sws *serverWatchStream) recvLoop() error {
 			if !sws.isWatchPermitted(creq) {
 				wr := &pb.WatchResponse{
 					Header:       sws.newResponseHeader(sws.watchStream.Rev()),
-					WatchId:      -1,
+					WatchId:      creq.WatchId,
 					Canceled:     true,
 					Created:      true,
 					CancelReason: rpctypes.ErrGRPCPermissionDenied.Error(),
@@ -224,8 +237,8 @@ func (sws *serverWatchStream) recvLoop() error {
 			if rev == 0 {
 				rev = wsrev + 1
 			}
-			id := sws.watchStream.Watch(creq.Key, creq.RangeEnd, rev, filters...)
-			if id != -1 {
+			id, err := sws.watchStream.Watch(mvcc.WatchID(creq.WatchId), creq.Key, creq.RangeEnd, rev, filters...)
+			if err == nil {
 				sws.mu.Lock()
 				if creq.ProgressNotify {
 					sws.progress[id] = true
@@ -239,7 +252,10 @@ func (sws *serverWatchStream) recvLoop() error {
 				Header:   sws.newResponseHeader(wsrev),
 				WatchId:  int64(id),
 				Created:  true,
-				Canceled: id == -1,
+				Canceled: err != nil,
+			}
+			if err != nil {
+				wr.CancelReason = err.Error()
 			}
 			select {
 			case sws.ctrlStream <- wr:
@@ -338,6 +354,11 @@ func (sws *serverWatchStream) sendLoop() {
 
 			mvcc.ReportEventReceived(len(evs))
 			if err := sws.gRPCStream.Send(wr); err != nil {
+				if isClientCtxErr(sws.gRPCStream.Context().Err(), err) {
+					plog.Debugf("failed to send watch response to gRPC stream (%q)", err.Error())
+				} else {
+					plog.Warningf("failed to send watch response to gRPC stream (%q)", err.Error())
+				}
 				return
 			}
 
@@ -354,6 +375,11 @@ func (sws *serverWatchStream) sendLoop() {
 			}
 
 			if err := sws.gRPCStream.Send(c); err != nil {
+				if isClientCtxErr(sws.gRPCStream.Context().Err(), err) {
+					plog.Debugf("failed to send watch control response to gRPC stream (%q)", err.Error())
+				} else {
+					plog.Warningf("failed to send watch control response to gRPC stream (%q)", err.Error())
+				}
 				return
 			}
 
@@ -369,6 +395,11 @@ func (sws *serverWatchStream) sendLoop() {
 				for _, v := range pending[wid] {
 					mvcc.ReportEventReceived(len(v.Events))
 					if err := sws.gRPCStream.Send(v); err != nil {
+						if isClientCtxErr(sws.gRPCStream.Context().Err(), err) {
+							plog.Debugf("failed to send pending watch response to gRPC stream (%q)", err.Error())
+						} else {
+							plog.Warningf("failed to send pending watch response to gRPC stream (%q)", err.Error())
+						}
 						return
 					}
 				}
@@ -400,7 +431,7 @@ func (sws *serverWatchStream) newResponseHeader(rev int64) *pb.ResponseHeader {
 		ClusterId: uint64(sws.clusterID),
 		MemberId:  uint64(sws.memberID),
 		Revision:  rev,
-		RaftTerm:  sws.raftTimer.Term(),
+		RaftTerm:  sws.sg.Term(),
 	}
 }
 

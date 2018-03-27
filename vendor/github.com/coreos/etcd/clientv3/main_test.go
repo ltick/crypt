@@ -25,6 +25,7 @@ import (
 	"github.com/coreos/etcd/auth"
 	"github.com/coreos/etcd/integration"
 	"github.com/coreos/etcd/pkg/testutil"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -48,7 +49,7 @@ func TestMain(m *testing.M) {
 		os.Args = append(os.Args, "-test.run=Test")
 	}
 
-	v := 0
+	var v int
 	if useCluster {
 		cfg := integration.ClusterConfig{Size: 3}
 		clus := integration.NewClusterV3(nil, &cfg)

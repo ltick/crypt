@@ -30,10 +30,12 @@ import (
 
 // agentConfig holds information needed to interact/configure an agent and its etcd process
 type agentConfig struct {
-	endpoint      string
-	clientPort    int
-	peerPort      int
-	failpointPort int
+	endpoint            string
+	clientPort          int
+	advertiseClientPort int
+	peerPort            int
+	advertisePeerPort   int
+	failpointPort       int
 }
 
 type cluster struct {
@@ -61,12 +63,14 @@ func (c *cluster) bootstrap() error {
 			return err
 		}
 		members[i] = &member{
-			Agent:        agent,
-			Endpoint:     a.endpoint,
-			Name:         fmt.Sprintf("etcd-%d", i),
-			ClientURL:    fmt.Sprintf("http://%s:%d", host, a.clientPort),
-			PeerURL:      fmt.Sprintf("http://%s:%d", host, a.peerPort),
-			FailpointURL: fmt.Sprintf("http://%s:%d", host, a.failpointPort),
+			Agent:              agent,
+			Endpoint:           a.endpoint,
+			Name:               fmt.Sprintf("etcd-%d", i),
+			ClientURL:          fmt.Sprintf("http://%s:%d", host, a.clientPort),
+			AdvertiseClientURL: fmt.Sprintf("http://%s:%d", host, a.advertiseClientPort),
+			PeerURL:            fmt.Sprintf("http://%s:%d", host, a.peerPort),
+			AdvertisePeerURL:   fmt.Sprintf("http://%s:%d", host, a.advertisePeerPort),
+			FailpointURL:       fmt.Sprintf("http://%s:%d", host, a.failpointPort),
 		}
 		memberNameURLs[i] = members[i].ClusterEntry()
 	}
@@ -78,7 +82,7 @@ func (c *cluster) bootstrap() error {
 			m.Flags(),
 			"--initial-cluster-token", token,
 			"--initial-cluster", clusterStr,
-			"--snapshot-count", "10000")
+		)
 
 		if _, err := m.Agent.Start(flags...); err != nil {
 			// cleanup

@@ -24,6 +24,7 @@ import (
 
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/coreos/etcd/version"
+
 	"github.com/coreos/go-semver/semver"
 )
 

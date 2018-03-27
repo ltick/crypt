@@ -43,6 +43,9 @@ func TestDetectKvOrderViolation(t *testing.T) {
 		},
 	}
 	cli, err := clientv3.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.TODO()
 
 	if _, err = clus.Client(0).Put(ctx, "foo", "bar"); err != nil {
@@ -101,6 +104,9 @@ func TestDetectTxnOrderViolation(t *testing.T) {
 		},
 	}
 	cli, err := clientv3.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.TODO()
 
 	if _, err = clus.Client(0).Put(ctx, "foo", "bar"); err != nil {
@@ -143,6 +149,9 @@ func TestDetectTxnOrderViolation(t *testing.T) {
 	cli.SetEndpoints(clus.Members[2].GRPCAddr())
 
 	_, err = orderingKv.Get(ctx, "foo", clientv3.WithSerializable())
+	if err != errOrderViolation {
+		t.Fatalf("expected %v, got %v", errOrderViolation, err)
+	}
 	orderingTxn = orderingKv.Txn(ctx)
 	_, err = orderingTxn.If(
 		clientv3.Compare(clientv3.Value("b"), ">", "a"),
@@ -195,7 +204,7 @@ var rangeTests = []struct {
 
 func TestKvOrdering(t *testing.T) {
 	for i, tt := range rangeTests {
-		mKV := &mockKV{clientv3.NewKVFromKVClient(nil), tt.response.OpResponse()}
+		mKV := &mockKV{clientv3.NewKVFromKVClient(nil, nil), tt.response.OpResponse()}
 		kv := &kvOrdering{
 			mKV,
 			func(r *clientv3.GetResponse) OrderViolationFunc {
@@ -249,7 +258,7 @@ var txnTests = []struct {
 
 func TestTxnOrdering(t *testing.T) {
 	for i, tt := range txnTests {
-		mKV := &mockKV{clientv3.NewKVFromKVClient(nil), tt.response.OpResponse()}
+		mKV := &mockKV{clientv3.NewKVFromKVClient(nil, nil), tt.response.OpResponse()}
 		kv := &kvOrdering{
 			mKV,
 			func(r *clientv3.TxnResponse) OrderViolationFunc {

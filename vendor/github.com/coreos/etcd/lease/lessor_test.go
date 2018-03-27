@@ -183,7 +183,7 @@ func TestLessorRevoke(t *testing.T) {
 	}
 
 	wdeleted := []string{"bar_", "foo_"}
-	sort.Sort(sort.StringSlice(fd.deleted))
+	sort.Strings(fd.deleted)
 	if !reflect.DeepEqual(fd.deleted, wdeleted) {
 		t.Errorf("deleted= %v, want %v", fd.deleted, wdeleted)
 	}
@@ -448,6 +448,20 @@ func TestLessorExpireAndDemote(t *testing.T) {
 	case <-donec:
 	case <-time.After(10 * time.Second):
 		t.Fatalf("renew has not returned after lessor demotion")
+	}
+}
+
+func TestLessorMaxTTL(t *testing.T) {
+	dir, be := NewTestBackend(t)
+	defer os.RemoveAll(dir)
+	defer be.Close()
+
+	le := newLessor(be, minLeaseTTL)
+	defer le.Stop()
+
+	_, err := le.Grant(1, MaxLeaseTTL+1)
+	if err != ErrLeaseTTLTooLarge {
+		t.Fatalf("grant unexpectedly succeeded")
 	}
 }
 

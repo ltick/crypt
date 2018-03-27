@@ -100,17 +100,20 @@ clustering flags:
 		HTTP proxy to use for traffic to discovery service.
 	--discovery-srv ''
 		dns srv domain used to bootstrap the cluster.
-	--strict-reconfig-check
+	--discovery-srv-name ''
+		suffix to the dns srv name queried when bootstrapping.
+	--strict-reconfig-check '` + strconv.FormatBool(embed.DefaultStrictReconfigCheck) + `'
 		reject reconfiguration requests that would cause quorum loss.
+	--pre-vote 'false'
+		enable to run an additional Raft election phase.
 	--auto-compaction-retention '0'
 		auto compaction retention length. 0 means disable auto compaction.
 	--auto-compaction-mode 'periodic'
-		'periodic' means hours, 'revision' means revision numbers to retain by auto compaction
-	--enable-v2
+		interpret 'auto-compaction-retention' one of: periodic|revision. 'periodic' for duration based retention, defaulting to hours if no time unit is provided (e.g. '5m'). 'revision' for revision number based retention.
+	--enable-v2 '` + strconv.FormatBool(embed.DefaultEnableV2) + `'
 		Accept etcd V2 client requests.
 
-proxy flags:
-	"proxy" supports v2 API only.
+proxy flags (v2 API only):
 
 	--proxy 'off'
 		proxy mode setting ('off', 'readonly' or 'on').
@@ -125,11 +128,8 @@ proxy flags:
 	--proxy-read-timeout 0
 		time (in milliseconds) for a read to timeout.
 
-
 security flags:
 
-	--ca-file '' [DEPRECATED]
-		path to the client server TLS CA file. '-ca-file ca.crt' could be replaced by '-trusted-ca-file ca.crt -client-cert-auth' and etcd will perform the same.
 	--cert-file ''
 		path to the client server TLS cert file.
 	--key-file ''
@@ -139,11 +139,9 @@ security flags:
 	--client-crl-file ''
 		path to the client certificate revocation list file.
 	--trusted-ca-file ''
-		path to the client server TLS trusted CA key file.
+		path to the client server TLS trusted CA cert file.
 	--auto-tls 'false'
 		client TLS using generated certificates.
-	--peer-ca-file '' [DEPRECATED]
-		path to the peer server TLS CA file. '-peer-ca-file ca.crt' could be replaced by '-peer-trusted-ca-file ca.crt -peer-client-cert-auth' and etcd will perform the same.
 	--peer-cert-file ''
 		path to the peer server TLS cert file.
 	--peer-key-file ''
@@ -156,6 +154,8 @@ security flags:
 		peer TLS using self-generated certificates if --peer-key-file and --peer-cert-file are not provided.
 	--peer-crl-file ''
 		path to the peer certificate revocation list file.
+	--host-whitelist ''
+		acceptable hostnames from HTTP client requests, if server is not secure (empty means allow all).
 
 logging flags
 
@@ -165,14 +165,6 @@ logging flags
 		specify a particular log level for each etcd package (eg: 'etcdmain=CRITICAL,etcdserver=DEBUG').
 	--log-output 'default'
 		specify 'stdout' or 'stderr' to skip journald logging even when running under systemd.
-
-unsafe flags:
-
-Please be CAUTIOUS when using unsafe flags because it will break the guarantees
-given by the consensus protocol.
-
-	--force-new-cluster 'false'
-		force to create a new one-member cluster.
 
 profiling flags:
 	--enable-pprof 'false'
@@ -187,9 +179,19 @@ auth flags:
 		Specify a v3 authentication token type and its options ('simple' or 'jwt').
 
 experimental flags:
+	--experimental-initial-corrupt-check 'false'
+		enable to check data corruption before serving any client/peer traffic.
 	--experimental-corrupt-check-time '0s'
-	        duration of time between cluster corruption check passes.
+		duration of time between cluster corruption check passes.
 	--experimental-enable-v2v3 ''
 		serve v2 requests through the v3 backend under a given prefix.
+
+
+Please be CAUTIOUS when using unsafe flags because it will break the guarantees
+given by the consensus protocol.
+
+unsafe flags:
+	--force-new-cluster 'false'
+		force to create a new one-member cluster.
 `
 )

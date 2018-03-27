@@ -78,6 +78,11 @@ var (
 		initialToken:          "new",
 		clientCertAuthEnabled: true,
 	}
+	configJWT = etcdProcessClusterConfig{
+		clusterSize:   1,
+		initialToken:  "new",
+		authTokenOpts: "jwt,pub-key=../integration/fixtures/server.crt,priv-key=../integration/fixtures/server.key.insecure,sign-method=RS256,ttl=1s",
+	}
 )
 
 func configStandalone(cfg etcdProcessClusterConfig) *etcdProcessClusterConfig {
@@ -112,10 +117,12 @@ type etcdProcessClusterConfig struct {
 	isClientAutoTLS       bool
 	isClientCRL           bool
 
-	forceNewCluster   bool
-	initialToken      string
-	quotaBackendBytes int64
-	noStrictReconfig  bool
+	forceNewCluster     bool
+	initialToken        string
+	quotaBackendBytes   int64
+	noStrictReconfig    bool
+	initialCorruptCheck bool
+	authTokenOpts       string
 }
 
 // newEtcdProcessCluster launches a new cluster from etcd processes, returning
@@ -224,6 +231,9 @@ func (cfg *etcdProcessClusterConfig) etcdServerProcessConfigs() []*etcdServerPro
 		if cfg.noStrictReconfig {
 			args = append(args, "--strict-reconfig-check=false")
 		}
+		if cfg.initialCorruptCheck {
+			args = append(args, "--experimental-initial-corrupt-check")
+		}
 		var murl string
 		if cfg.metricsURLScheme != "" {
 			murl = (&url.URL{
@@ -234,6 +244,11 @@ func (cfg *etcdProcessClusterConfig) etcdServerProcessConfigs() []*etcdServerPro
 		}
 
 		args = append(args, cfg.tlsArgs()...)
+
+		if cfg.authTokenOpts != "" {
+			args = append(args, "--auth-token", cfg.authTokenOpts)
+		}
+
 		etcdCfgs[i] = &etcdServerProcessConfig{
 			execPath:     cfg.execPath,
 			args:         args,
@@ -265,7 +280,7 @@ func (cfg *etcdProcessClusterConfig) tlsArgs() (args []string) {
 			tlsClientArgs := []string{
 				"--cert-file", certPath,
 				"--key-file", privateKeyPath,
-				"--ca-file", caPath,
+				"--trusted-ca-file", caPath,
 			}
 			args = append(args, tlsClientArgs...)
 
@@ -282,7 +297,7 @@ func (cfg *etcdProcessClusterConfig) tlsArgs() (args []string) {
 			tlsPeerArgs := []string{
 				"--peer-cert-file", certPath,
 				"--peer-key-file", privateKeyPath,
-				"--peer-ca-file", caPath,
+				"--peer-trusted-ca-file", caPath,
 			}
 			args = append(args, tlsPeerArgs...)
 		}

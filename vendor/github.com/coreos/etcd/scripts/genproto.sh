@@ -10,17 +10,17 @@ if ! [[ "$0" =~ scripts/genproto.sh ]]; then
 	exit 255
 fi
 
-if [[ $(protoc --version | cut -f2 -d' ') != "3.3.0" ]]; then
-	echo "could not find protoc 3.3.0, is it installed + in PATH?"
+if [[ $(protoc --version | cut -f2 -d' ') != "3.5.1" ]]; then
+	echo "could not find protoc 3.5.1, is it installed + in PATH?"
 	exit 255
 fi
 
 # directories containing protos to be built
-DIRS="./wal/walpb ./etcdserver/etcdserverpb ./snap/snappb ./raft/raftpb ./mvcc/mvccpb ./lease/leasepb ./auth/authpb ./etcdserver/api/v3lock/v3lockpb ./etcdserver/api/v3election/v3electionpb"
+DIRS="./wal/walpb ./etcdserver/etcdserverpb ./raftsnap/snappb ./raft/raftpb ./mvcc/mvccpb ./lease/leasepb ./auth/authpb ./etcdserver/api/v3lock/v3lockpb ./etcdserver/api/v3election/v3electionpb"
 
 # exact version of packages to build
-GOGO_PROTO_SHA="100ba4e885062801d56799d78530b73b178a78f3"
-GRPC_GATEWAY_SHA="18d159699f2e83fc5bb9ef2f79465ca3f3122676"
+GOGO_PROTO_SHA="41168f6614b7bb144818ec8967b8c702705df564"
+GRPC_GATEWAY_SHA="61c34cc7e0c7a0d85e4237d665e622640279ff3d"
 SCHWAG_SHA="b7d0fc9aadaaae3d61aaadfc12e4a2f945514912"
 
 # set up self-contained GOPATH for building
@@ -59,11 +59,17 @@ popd
 for dir in ${DIRS}; do
 	pushd "${dir}"
 		protoc --gofast_out=plugins=grpc,import_prefix=github.com/coreos/:. -I=".:${GOGOPROTO_PATH}:${COREOS_ROOT}:${GRPC_GATEWAY_ROOT}/third_party/googleapis" ./*.proto
-		sed -i.bak -E "s/github\.com\/coreos\/(gogoproto|github\.com|golang\.org|google\.golang\.org)/\1/g" ./*.pb.go
+		# shellcheck disable=SC1117
+		sed -i.bak -E 's/github\.com\/coreos\/(gogoproto|github\.com|golang\.org|google\.golang\.org)/\1/g' ./*.pb.go
+		# shellcheck disable=SC1117
 		sed -i.bak -E 's/github\.com\/coreos\/(errors|fmt|io)/\1/g' ./*.pb.go
+		# shellcheck disable=SC1117
 		sed -i.bak -E 's/import _ \"gogoproto\"//g' ./*.pb.go
+		# shellcheck disable=SC1117
 		sed -i.bak -E 's/import fmt \"fmt\"//g' ./*.pb.go
+		# shellcheck disable=SC1117
 		sed -i.bak -E 's/import _ \"github\.com\/coreos\/google\/api\"//g' ./*.pb.go
+		# shellcheck disable=SC1117
 		sed -i.bak -E 's/import _ \"google\.golang\.org\/genproto\/googleapis\/api\/annotations\"//g' ./*.pb.go
 		rm -f ./*.bak
 		goimports -w ./*.pb.go
@@ -86,12 +92,14 @@ for pb in etcdserverpb/rpc api/v3lock/v3lockpb/v3lock api/v3election/v3electionp
 	pkg=$(basename "${pkgpath}")
 	gwfile="${protobase}.pb.gw.go"
 	sed -i.bak -E "s/package $pkg/package gw/g" ${gwfile}
+	# shellcheck disable=SC1117
 	sed -i.bak -E "s/protoReq /&$pkg\./g" ${gwfile}
 	sed -i.bak -E "s/, client /, client $pkg./g" ${gwfile}
 	sed -i.bak -E "s/Client /, client $pkg./g" ${gwfile}
 	sed -i.bak -E "s/[^(]*Client, runtime/${pkg}.&/" ${gwfile}
 	sed -i.bak -E "s/New[A-Za-z]*Client/${pkg}.&/" ${gwfile}
 	# darwin doesn't like newlines in sed...
+	# shellcheck disable=SC1117
 	sed -i.bak -E "s|import \(|& \"github.com/coreos/etcd/${pkgpath}\"|" ${gwfile}
 	mkdir -p  "${pkgpath}"/gw/
 	go fmt ${gwfile}
@@ -114,10 +122,10 @@ schwag -input=Documentation/dev-guide/apispec/swagger/rpc.swagger.json
 # install protodoc
 # go get -v -u github.com/coreos/protodoc
 #
-# by default, do not run this option.
-# only run when './scripts/genproto.sh -g'
+# run './scripts/genproto.sh --skip-protodoc'
+# to skip protodoc generation
 #
-if [ "$1" = "-g" ]; then
+if [ "$1" != "--skip-protodoc" ]; then
 	echo "protodoc is auto-generating grpc API reference documentation..."
 	go get -v -u github.com/coreos/protodoc
 	SHA_PROTODOC="4372ee725035a208404e2d5465ba921469decc32"

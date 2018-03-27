@@ -25,19 +25,21 @@ import (
 	"github.com/coreos/etcd/pkg/pbutil"
 	"github.com/coreos/etcd/pkg/types"
 	"github.com/coreos/etcd/raft/raftpb"
-	"github.com/coreos/etcd/snap"
+	"github.com/coreos/etcd/raftsnap"
 	"github.com/coreos/etcd/wal"
 	"github.com/coreos/etcd/wal/walpb"
 )
 
 func main() {
-	from := flag.String("data-dir", "", "")
 	snapfile := flag.String("start-snap", "", "The base name of snapshot file to start dumping")
 	index := flag.Uint64("start-index", 0, "The index to start dumping")
 	flag.Parse()
-	if *from == "" {
-		log.Fatal("Must provide -data-dir flag.")
+
+	if len(flag.Args()) != 1 {
+		log.Fatalf("Must provide data-dir argument (got %+v)", flag.Args())
 	}
+	dataDir := flag.Args()[0]
+
 	if *snapfile != "" && *index != 0 {
 		log.Fatal("start-snap and start-index flags cannot be used together.")
 	}
@@ -55,10 +57,10 @@ func main() {
 		walsnap.Index = *index
 	} else {
 		if *snapfile == "" {
-			ss := snap.New(snapDir(*from))
+			ss := raftsnap.New(snapDir(dataDir))
 			snapshot, err = ss.Load()
 		} else {
-			snapshot, err = snap.Read(filepath.Join(snapDir(*from), *snapfile))
+			snapshot, err = raftsnap.Read(filepath.Join(snapDir(dataDir), *snapfile))
 		}
 
 		switch err {
@@ -67,7 +69,7 @@ func main() {
 			nodes := genIDSlice(snapshot.Metadata.ConfState.Nodes)
 			fmt.Printf("Snapshot:\nterm=%d index=%d nodes=%s\n",
 				walsnap.Term, walsnap.Index, nodes)
-		case snap.ErrNoSnapshot:
+		case raftsnap.ErrNoSnapshot:
 			fmt.Printf("Snapshot:\nempty\n")
 		default:
 			log.Fatalf("Failed loading snapshot: %v", err)
@@ -75,7 +77,7 @@ func main() {
 		fmt.Println("Start dupmping log entries from snapshot.")
 	}
 
-	w, err := wal.OpenForRead(walDir(*from), walsnap)
+	w, err := wal.OpenForRead(walDir(dataDir), walsnap)
 	if err != nil {
 		log.Fatalf("Failed opening WAL: %v", err)
 	}
@@ -104,6 +106,8 @@ func main() {
 				break
 			}
 
+			// TODO: remove sensitive information
+			// (https://github.com/coreos/etcd/issues/7620)
 			var r etcdserverpb.Request
 			if err := r.Unmarshal(e.Data); err == nil {
 				switch r.Method {
@@ -141,7 +145,7 @@ func parseWALMetadata(b []byte) (id, cid types.ID) {
 	pbutil.MustUnmarshal(&metadata, b)
 	id = types.ID(metadata.NodeID)
 	cid = types.ID(metadata.ClusterID)
-	return
+	return id, cid
 }
 
 func genIDSlice(a []uint64) []types.ID {

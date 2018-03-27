@@ -166,7 +166,7 @@ func TestV3HashKV(t *testing.T) {
 		}
 
 		rev := resp.Header.Revision
-		hresp, err := mvc.HashKV(context.Background(), &pb.HashKVRequest{0})
+		hresp, err := mvc.HashKV(context.Background(), &pb.HashKVRequest{Revision: 0})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -177,7 +177,7 @@ func TestV3HashKV(t *testing.T) {
 		prevHash := hresp.Hash
 		prevCompactRev := hresp.CompactRevision
 		for i := 0; i < 10; i++ {
-			hresp, err := mvc.HashKV(context.Background(), &pb.HashKVRequest{0})
+			hresp, err := mvc.HashKV(context.Background(), &pb.HashKVRequest{Revision: 0})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -519,7 +519,7 @@ func TestV3TxnRangeCompare(t *testing.T) {
 				RangeEnd:    []byte{0},
 				Target:      pb.Compare_CREATE,
 				Result:      pb.Compare_LESS,
-				TargetUnion: &pb.Compare_CreateRevision{6},
+				TargetUnion: &pb.Compare_CreateRevision{CreateRevision: 6},
 			},
 			true,
 		},
@@ -530,7 +530,7 @@ func TestV3TxnRangeCompare(t *testing.T) {
 				RangeEnd:    []byte{0},
 				Target:      pb.Compare_CREATE,
 				Result:      pb.Compare_LESS,
-				TargetUnion: &pb.Compare_CreateRevision{5},
+				TargetUnion: &pb.Compare_CreateRevision{CreateRevision: 5},
 			},
 			false,
 		},
@@ -541,7 +541,7 @@ func TestV3TxnRangeCompare(t *testing.T) {
 				RangeEnd:    []byte("/a0"),
 				Target:      pb.Compare_CREATE,
 				Result:      pb.Compare_LESS,
-				TargetUnion: &pb.Compare_CreateRevision{5},
+				TargetUnion: &pb.Compare_CreateRevision{CreateRevision: 5},
 			},
 			true,
 		},
@@ -552,7 +552,7 @@ func TestV3TxnRangeCompare(t *testing.T) {
 				RangeEnd:    []byte("/a0"),
 				Target:      pb.Compare_CREATE,
 				Result:      pb.Compare_LESS,
-				TargetUnion: &pb.Compare_CreateRevision{4},
+				TargetUnion: &pb.Compare_CreateRevision{CreateRevision: 4},
 			},
 			false,
 		},
@@ -563,7 +563,7 @@ func TestV3TxnRangeCompare(t *testing.T) {
 				RangeEnd:    []byte("/b0"),
 				Target:      pb.Compare_VALUE,
 				Result:      pb.Compare_EQUAL,
-				TargetUnion: &pb.Compare_Value{[]byte("x")},
+				TargetUnion: &pb.Compare_Value{Value: []byte("x")},
 			},
 			false,
 		},
@@ -574,7 +574,7 @@ func TestV3TxnRangeCompare(t *testing.T) {
 				RangeEnd:    []byte("/a0"),
 				Target:      pb.Compare_LEASE,
 				Result:      pb.Compare_GREATER,
-				TargetUnion: &pb.Compare_Lease{0},
+				TargetUnion: &pb.Compare_Lease{Lease: 0},
 			},
 			false,
 		},
@@ -585,7 +585,7 @@ func TestV3TxnRangeCompare(t *testing.T) {
 				RangeEnd:    []byte("/a0"),
 				Target:      pb.Compare_LEASE,
 				Result:      pb.Compare_EQUAL,
-				TargetUnion: &pb.Compare_Lease{0},
+				TargetUnion: &pb.Compare_Lease{Lease: 0},
 			},
 			true,
 		},
@@ -1845,29 +1845,37 @@ func TestGRPCStreamRequireLeader(t *testing.T) {
 	}
 }
 
-// TestV3PutLargeRequests ensures that configurable MaxRequestBytes works as intended.
-func TestV3PutLargeRequests(t *testing.T) {
+// TestV3LargeRequests ensures that configurable MaxRequestBytes works as intended.
+func TestV3LargeRequests(t *testing.T) {
 	defer testutil.AfterTest(t)
 	tests := []struct {
-		key             string
 		maxRequestBytes uint
 		valueSize       int
 		expectError     error
 	}{
 		// don't set to 0. use 0 as the default.
-		{"foo", 1, 1024, rpctypes.ErrGRPCRequestTooLarge},
-		{"foo", 10 * 1024 * 1024, 9 * 1024 * 1024, nil},
-		{"foo", 10 * 1024 * 1024, 10 * 1024 * 1024, rpctypes.ErrGRPCRequestTooLarge},
-		{"foo", 10 * 1024 * 1024, 10*1024*1024 + 5, rpctypes.ErrGRPCRequestTooLarge},
+		{1, 1024, rpctypes.ErrGRPCRequestTooLarge},
+		{10 * 1024 * 1024, 9 * 1024 * 1024, nil},
+		{10 * 1024 * 1024, 10 * 1024 * 1024, rpctypes.ErrGRPCRequestTooLarge},
+		{10 * 1024 * 1024, 10*1024*1024 + 5, rpctypes.ErrGRPCRequestTooLarge},
 	}
 	for i, test := range tests {
 		clus := NewClusterV3(t, &ClusterConfig{Size: 1, MaxRequestBytes: test.maxRequestBytes})
 		kvcli := toGRPC(clus.Client(0)).KV
-		reqput := &pb.PutRequest{Key: []byte(test.key), Value: make([]byte, test.valueSize)}
+		reqput := &pb.PutRequest{Key: []byte("foo"), Value: make([]byte, test.valueSize)}
 		_, err := kvcli.Put(context.TODO(), reqput)
-
 		if !eqErrGRPC(err, test.expectError) {
 			t.Errorf("#%d: expected error %v, got %v", i, test.expectError, err)
+		}
+
+		// request went through, expect large response back from server
+		if test.expectError == nil {
+			reqget := &pb.RangeRequest{Key: []byte("foo")}
+			// limit receive call size with original value + gRPC overhead bytes
+			_, err = kvcli.Range(context.TODO(), reqget, grpc.MaxCallRecvMsgSize(test.valueSize+512*1024))
+			if err != nil {
+				t.Errorf("#%d: range expected no error, got %v", i, err)
+			}
 		}
 
 		clus.Terminate(t)

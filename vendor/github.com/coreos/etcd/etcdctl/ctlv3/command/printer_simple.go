@@ -21,6 +21,7 @@ import (
 	v3 "github.com/coreos/etcd/clientv3"
 	pb "github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/coreos/etcd/pkg/types"
+	"github.com/coreos/etcd/snapshot"
 )
 
 type simplePrinter struct {
@@ -93,6 +94,11 @@ func (p *simplePrinter) KeepAlive(resp v3.LeaseKeepAliveResponse) {
 }
 
 func (s *simplePrinter) TimeToLive(resp v3.LeaseTimeToLiveResponse, keys bool) {
+	if resp.GrantedTTL == 0 && resp.TTL == -1 {
+		fmt.Printf("lease %016x already expired\n", resp.ID)
+		return
+	}
+
 	txt := fmt.Sprintf("lease %016x granted with TTL(%ds), remaining(%ds)", resp.ID, resp.GrantedTTL, resp.TTL)
 	if keys {
 		ks := make([]string, len(resp.Keys))
@@ -150,7 +156,7 @@ func (s *simplePrinter) EndpointHashKV(hashList []epHashKV) {
 	}
 }
 
-func (s *simplePrinter) DBStatus(ds dbstatus) {
+func (s *simplePrinter) DBStatus(ds snapshot.Status) {
 	_, rows := makeDBStatusTable(ds)
 	for _, row := range rows {
 		fmt.Println(strings.Join(row, ", "))

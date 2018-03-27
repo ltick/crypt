@@ -359,6 +359,13 @@ If `_etcd-client-ssl._tcp.example.com` is found, clients will attempt to communi
 
 If etcd is using TLS without a custom certificate authority, the discovery domain (e.g., example.com) must match the SRV record domain (e.g., infra1.example.com). This is to mitigate attacks that forge SRV records to point to a different domain; the domain would have a valid certificate under PKI but be controlled by an unknown third party.
 
+The `-discovery-srv-name` flag additionally configures a suffix to the SRV name that is queried during discovery.
+Use this flag to differentiate between multiple etcd clusters under the same domain.
+For example, if `discovery-srv=example.com` and `-discovery-srv-name=foo` are set, the following DNS SRV queries are made:
+
+* _etcd-server-ssl-foo._tcp.example.com
+* _etcd-server-foo._tcp.example.com
+
 #### Create DNS SRV records
 
 ```
@@ -456,6 +463,8 @@ $ etcd --name infra2 \
 --listen-peer-urls http://10.0.1.12:2380
 ```
 
+Since v3.1.0 (except v3.2.9), when `etcd --discovery-srv=example.com` is configured with TLS, server will only authenticate peers/clients when the provided certs have root domain `example.com` as an entry in Subject Alternative Name (SAN) field. See [Notes for DNS SRV][security-guide-dns-srv].
+
 ### Gateway
 
 etcd gateway is a simple TCP proxy that forwards network data to the etcd cluster. Please read [gateway guide][gateway] for more information.
@@ -475,5 +484,6 @@ To setup an etcd cluster with proxies of v2 API, please read the the [clustering
 [proxy]: https://github.com/coreos/etcd/blob/release-2.3/Documentation/proxy.md
 [clustering_etcd2]: https://github.com/coreos/etcd/blob/release-2.3/Documentation/clustering.md
 [security-guide]: security.md
+[security-guide-dns-srv]: security.md#notes-for-dns-srv
 [tls-setup]: ../../hack/tls-setup
 [gateway]: gateway.md

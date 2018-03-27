@@ -26,7 +26,7 @@ import (
 	"github.com/coreos/etcd/pkg/types"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
-	"github.com/coreos/etcd/snap"
+	"github.com/coreos/etcd/raftsnap"
 
 	"github.com/coreos/pkg/capnslog"
 	"github.com/xiang90/probing"
@@ -60,7 +60,7 @@ type Transporter interface {
 	Send(m []raftpb.Message)
 	// SendSnapshot sends out the given snapshot message to a remote peer.
 	// The behavior of SendSnapshot is similar to Send.
-	SendSnapshot(m snap.Message)
+	SendSnapshot(m raftsnap.Message)
 	// AddRemote adds a remote with given peer urls into the transport.
 	// A remote helps newly joined member to catch up the progress of cluster,
 	// and will not be used after that.
@@ -85,6 +85,8 @@ type Transporter interface {
 	// If the connection is active since peer was added, it returns the adding time.
 	// If the connection is currently inactive, it returns zero time.
 	ActiveSince(id types.ID) time.Time
+	// ActivePeers returns the number of active peers.
+	ActivePeers() int
 	// Stop closes the connections and stops the transporter.
 	Stop()
 }
@@ -107,7 +109,7 @@ type Transport struct {
 	URLs        types.URLs // local peer URLs
 	ClusterID   types.ID   // raft cluster ID for request validation
 	Raft        Raft       // raft state machine, to which the Transport forwards received messages and reports status
-	Snapshotter *snap.Snapshotter
+	Snapshotter *raftsnap.Snapshotter
 	ServerStats *stats.ServerStats // used to record general transportation statistics
 	// used to record transportation statistics with followers when
 	// performing as leader in raft protocol
@@ -338,15 +340,15 @@ func (t *Transport) UpdatePeer(id types.ID, us []string) {
 }
 
 func (t *Transport) ActiveSince(id types.ID) time.Time {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	if p, ok := t.peers[id]; ok {
 		return p.activeSince()
 	}
 	return time.Time{}
 }
 
-func (t *Transport) SendSnapshot(m snap.Message) {
+func (t *Transport) SendSnapshot(m raftsnap.Message) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	p := t.peers[types.ID(m.To)]
@@ -375,6 +377,20 @@ func (t *Transport) Resume() {
 	}
 }
 
+// ActivePeers returns a channel that closes when an initial
+// peer connection has been established. Use this to wait until the
+// first peer connection becomes active.
+func (t *Transport) ActivePeers() (cnt int) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	for _, p := range t.peers {
+		if !p.activeSince().IsZero() {
+			cnt++
+		}
+	}
+	return cnt
+}
+
 type nopTransporter struct{}
 
 func NewNopTransporter() Transporter {
@@ -384,31 +400,32 @@ func NewNopTransporter() Transporter {
 func (s *nopTransporter) Start() error                        { return nil }
 func (s *nopTransporter) Handler() http.Handler               { return nil }
 func (s *nopTransporter) Send(m []raftpb.Message)             {}
-func (s *nopTransporter) SendSnapshot(m snap.Message)         {}
+func (s *nopTransporter) SendSnapshot(m raftsnap.Message)     {}
 func (s *nopTransporter) AddRemote(id types.ID, us []string)  {}
 func (s *nopTransporter) AddPeer(id types.ID, us []string)    {}
 func (s *nopTransporter) RemovePeer(id types.ID)              {}
 func (s *nopTransporter) RemoveAllPeers()                     {}
 func (s *nopTransporter) UpdatePeer(id types.ID, us []string) {}
 func (s *nopTransporter) ActiveSince(id types.ID) time.Time   { return time.Time{} }
+func (s *nopTransporter) ActivePeers() int                    { return 0 }
 func (s *nopTransporter) Stop()                               {}
 func (s *nopTransporter) Pause()                              {}
 func (s *nopTransporter) Resume()                             {}
 
 type snapTransporter struct {
 	nopTransporter
-	snapDoneC chan snap.Message
+	snapDoneC chan raftsnap.Message
 	snapDir   string
 }
 
-func NewSnapTransporter(snapDir string) (Transporter, <-chan snap.Message) {
-	ch := make(chan snap.Message, 1)
+func NewSnapTransporter(snapDir string) (Transporter, <-chan raftsnap.Message) {
+	ch := make(chan raftsnap.Message, 1)
 	tr := &snapTransporter{snapDoneC: ch, snapDir: snapDir}
 	return tr, ch
 }
 
-func (s *snapTransporter) SendSnapshot(m snap.Message) {
-	ss := snap.New(s.snapDir)
+func (s *snapTransporter) SendSnapshot(m raftsnap.Message) {
+	ss := raftsnap.New(s.snapDir)
 	ss.SaveDBFrom(m.ReadCloser, m.Snapshot.Metadata.Index+1)
 	m.CloseWithError(nil)
 	s.snapDoneC <- m

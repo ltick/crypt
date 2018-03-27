@@ -15,6 +15,7 @@ type Client struct {
 	client    goetcd.Client
 	keysAPI   goetcd.KeysAPI
 	waitIndex uint64
+	logger backend.Logger
 }
 
 func New(machines []string) (*Client, error) {
@@ -113,4 +114,8 @@ func (c *Client) WatchWithContext(ctx context.Context, key string, stop chan boo
 		}
 	}()
 	return respChan
+}
+
+func (c *Client) SetLogger(l backend.Logger) {
+	c.logger = l
 }

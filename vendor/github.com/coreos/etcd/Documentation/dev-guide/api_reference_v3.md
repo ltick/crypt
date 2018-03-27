@@ -226,8 +226,8 @@ Empty field.
 | Field | Description | Type |
 | ----- | ----------- | ---- |
 | role |  | string |
-| key |  | string |
-| range_end |  | string |
+| key |  | bytes |
+| range_end |  | bytes |
 
 
 
@@ -480,7 +480,7 @@ Empty field.
 
 | Field | Description | Type |
 | ----- | ----------- | ---- |
-| TTL | TTL is the advisory time-to-live in seconds. | int64 |
+| TTL | TTL is the advisory time-to-live in seconds. Expired lease will return -1. | int64 |
 | ID | ID is the requested ID for the lease. If ID is set to 0, the lessor chooses an ID. | int64 |
 
 
@@ -706,7 +706,7 @@ Empty field.
 | count_only | count_only when set returns only the count of the keys in the range. | bool |
 | min_mod_revision | min_mod_revision is the lower bound for returned key mod revisions; all keys with lesser mod revisions will be filtered away. | int64 |
 | max_mod_revision | max_mod_revision is the upper bound for returned key mod revisions; all keys with greater mod revisions will be filtered away. | int64 |
-| min_create_revision | min_create_revision is the lower bound for returned key create revisions; all keys with lesser create trevisions will be filtered away. | int64 |
+| min_create_revision | min_create_revision is the lower bound for returned key create revisions; all keys with lesser create revisions will be filtered away. | int64 |
 | max_create_revision | max_create_revision is the upper bound for returned key create revisions; all keys with greater create revisions will be filtered away. | int64 |
 
 
@@ -785,10 +785,13 @@ Empty field.
 | ----- | ----------- | ---- |
 | header |  | ResponseHeader |
 | version | version is the cluster protocol version used by the responding member. | string |
-| dbSize | dbSize is the size of the backend database, in bytes, of the responding member. | int64 |
+| dbSize | dbSize is the size of the backend database physically allocated, in bytes, of the responding member. | int64 |
 | leader | leader is the member ID which the responding member believes is the current leader. | uint64 |
-| raftIndex | raftIndex is the current raft index of the responding member. | uint64 |
+| raftIndex | raftIndex is the current raft committed index of the responding member. | uint64 |
 | raftTerm | raftTerm is the current raft term of the responding member. | uint64 |
+| raftAppliedIndex | raftAppliedIndex is the current raft applied index of the responding member. | uint64 |
+| errors | errors contains alarm/health information and status. | (slice of) string |
+| dbSizeInUse | dbSizeInUse is the size of the backend database logically in use, in bytes, of the responding member. | int64 |
 
 
 
@@ -832,6 +835,7 @@ From google paxosdb paper: Our implementation hinges around a powerful primitive
 | progress_notify | progress_notify is set so that the etcd server will periodically send a WatchResponse with no events to the new watcher if there are no recent events. It is useful when clients wish to recover a disconnected watcher starting from a recent known revision. The etcd server may decide how often it will send notifications based on current load. | bool |
 | filters | filters filter the events at server side before it sends back to the watcher. | (slice of) FilterType |
 | prev_kv | If prev_kv is set, created watcher gets the previous KV before the event happens. If the previous KV is already compacted, nothing will be returned. | bool |
+| watch_id | If watch_id is provided and non-zero, it will be assigned to this watcher. Since creating a watcher in etcd is not a synchronous operation, this can be used ensure that ordering is correct when creating multiple watchers on the same stream. Creating a watcher with an ID already in use on the stream will cause an error to be returned. | int64 |
 
 
 

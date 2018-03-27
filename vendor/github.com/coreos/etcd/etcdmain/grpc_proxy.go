@@ -17,6 +17,7 @@ package etcdmain
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"net"
 	"net/http"
@@ -37,10 +38,12 @@ import (
 	"github.com/coreos/etcd/pkg/transport"
 	"github.com/coreos/etcd/proxy/grpcproxy"
 
+	"github.com/coreos/pkg/capnslog"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/soheilhy/cmux"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/grpclog"
 )
 
 var (
@@ -50,6 +53,8 @@ var (
 	grpcProxyDNSCluster        string
 	grpcProxyInsecureDiscovery bool
 	grpcProxyDataDir           string
+	grpcMaxCallSendMsgSize     int
+	grpcMaxCallRecvMsgSize     int
 
 	// tls for connecting to etcd
 
@@ -75,7 +80,11 @@ var (
 
 	grpcProxyEnablePprof    bool
 	grpcProxyEnableOrdering bool
+
+	grpcProxyDebug bool
 )
+
+const defaultGRPCMaxCallSendMsgSize = 1.5 * 1024 * 1024
 
 func init() {
 	rootCmd.AddCommand(newGRPCProxyCommand())
@@ -110,6 +119,8 @@ func newGRPCProxyStartCommand() *cobra.Command {
 	cmd.Flags().StringVar(&grpcProxyNamespace, "namespace", "", "string to prefix to all keys for namespacing requests")
 	cmd.Flags().BoolVar(&grpcProxyEnablePprof, "enable-pprof", false, `Enable runtime profiling data via HTTP server. Address is at client URL + "/debug/pprof/"`)
 	cmd.Flags().StringVar(&grpcProxyDataDir, "data-dir", "default.proxy", "Data directory for persistent data")
+	cmd.Flags().IntVar(&grpcMaxCallSendMsgSize, "max-send-bytes", defaultGRPCMaxCallSendMsgSize, "message send limits in bytes (default value is 1.5 MiB)")
+	cmd.Flags().IntVar(&grpcMaxCallRecvMsgSize, "max-recv-bytes", math.MaxInt32, "message receive limits in bytes (default value is math.MaxInt32)")
 
 	// client TLS for connecting to server
 	cmd.Flags().StringVar(&grpcProxyCert, "cert", "", "identify secure connections with etcd servers using this TLS certificate file")
@@ -127,11 +138,25 @@ func newGRPCProxyStartCommand() *cobra.Command {
 	// experimental flags
 	cmd.Flags().BoolVar(&grpcProxyEnableOrdering, "experimental-serializable-ordering", false, "Ensure serializable reads have monotonically increasing store revisions across endpoints.")
 	cmd.Flags().StringVar(&grpcProxyLeasing, "experimental-leasing-prefix", "", "leasing metadata prefix for disconnected linearized reads.")
+
+	cmd.Flags().BoolVar(&grpcProxyDebug, "debug", false, "Enable debug-level logging for grpc-proxy.")
+
 	return &cmd
 }
 
 func startGRPCProxy(cmd *cobra.Command, args []string) {
 	checkArgs()
+
+	capnslog.SetGlobalLogLevel(capnslog.INFO)
+	if grpcProxyDebug {
+		capnslog.SetGlobalLogLevel(capnslog.DEBUG)
+		grpc.EnableTracing = true
+		// enable info, warning, error
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(os.Stderr, os.Stderr, os.Stderr))
+	} else {
+		// only discard info
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(ioutil.Discard, os.Stderr, os.Stderr))
+	}
 
 	tlsinfo := newTLS(grpcProxyListenCA, grpcProxyListenCert, grpcProxyListenKey)
 	if tlsinfo == nil && grpcProxyListenAutoTLS {
@@ -222,6 +247,14 @@ func newClientCfg(eps []string) (*clientv3.Config, error) {
 		Endpoints:   eps,
 		DialTimeout: 5 * time.Second,
 	}
+
+	if grpcMaxCallSendMsgSize > 0 {
+		cfg.MaxCallSendMsgSize = grpcMaxCallSendMsgSize
+	}
+	if grpcMaxCallRecvMsgSize > 0 {
+		cfg.MaxCallRecvMsgSize = grpcMaxCallRecvMsgSize
+	}
+
 	tls := newTLS(grpcProxyCA, grpcProxyCert, grpcProxyKey)
 	if tls == nil && grpcProxyInsecureSkipTLSVerify {
 		tls = &transport.TLSInfo{}
@@ -242,7 +275,7 @@ func newTLS(ca, cert, key string) *transport.TLSInfo {
 	if ca == "" && cert == "" && key == "" {
 		return nil
 	}
-	return &transport.TLSInfo{CAFile: ca, CertFile: cert, KeyFile: key}
+	return &transport.TLSInfo{TrustedCAFile: ca, CertFile: cert, KeyFile: key}
 }
 
 func mustListenCMux(tlsinfo *transport.TLSInfo) cmux.CMux {
@@ -318,6 +351,10 @@ func newGRPCProxyServer(client *clientv3.Client) *grpc.Server {
 	pb.RegisterAuthServer(server, authp)
 	v3electionpb.RegisterElectionServer(server, electionp)
 	v3lockpb.RegisterLockServer(server, lockp)
+
+	// set zero values for metrics registered for this grpc server
+	grpc_prometheus.Register(server)
+
 	return server
 }
 

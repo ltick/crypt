@@ -20,6 +20,7 @@ import (
 
 	"github.com/coreos/etcd/pkg/types"
 	"github.com/coreos/etcd/version"
+
 	"github.com/coreos/go-semver/semver"
 )
 

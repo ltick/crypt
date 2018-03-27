@@ -15,15 +15,18 @@
 package embed
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/coreos/etcd/compactor"
 	"github.com/coreos/etcd/etcdserver"
 	"github.com/coreos/etcd/pkg/cors"
 	"github.com/coreos/etcd/pkg/netutil"
@@ -31,8 +34,10 @@ import (
 	"github.com/coreos/etcd/pkg/transport"
 	"github.com/coreos/etcd/pkg/types"
 
+	"github.com/coreos/pkg/capnslog"
 	"github.com/ghodss/yaml"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/grpclog"
 )
 
 const (
@@ -51,6 +56,16 @@ const (
 	DefaultListenPeerURLs   = "http://localhost:2380"
 	DefaultListenClientURLs = "http://localhost:2379"
 
+	DefaultLogOutput = "default"
+
+	// DefaultStrictReconfigCheck is the default value for "--strict-reconfig-check" flag.
+	// It's enabled by default.
+	DefaultStrictReconfigCheck = true
+	// DefaultEnableV2 is the default value for "--enable-v2" flag.
+	// v2 is enabled by default.
+	// TODO: disable v2 when deprecated.
+	DefaultEnableV2 = true
+
 	// maxElectionMs specifies the maximum value of election timeout.
 	// More details are listed in ../Documentation/tuning.md#time-parameters.
 	maxElectionMs = 50000
@@ -64,8 +79,26 @@ var (
 	DefaultInitialAdvertisePeerURLs = "http://localhost:2380"
 	DefaultAdvertiseClientURLs      = "http://localhost:2379"
 
-	defaultHostname   string
-	defaultHostStatus error
+	defaultHostname      string
+	defaultHostStatus    error
+	defaultHostWhitelist = []string{} // if empty, allow all
+)
+
+var (
+	// CompactorModePeriodic is periodic compaction mode
+	// for "Config.AutoCompactionMode" field.
+	// If "AutoCompactionMode" is CompactorModePeriodic and
+	// "AutoCompactionRetention" is "1h", it automatically compacts
+	// compacts storage every hour.
+	CompactorModePeriodic = compactor.ModePeriodic
+
+	// CompactorModeRevision is revision-based compaction mode
+	// for "Config.AutoCompactionMode" field.
+	// If "AutoCompactionMode" is CompactorModeRevision and
+	// "AutoCompactionRetention" is "1000", it compacts log on
+	// revision 5000 when the current revision is 6000.
+	// This runs every 5-minute if enough of logs have proceeded.
+	CompactorModeRevision = compactor.ModeRevision
 )
 
 func init() {
@@ -74,18 +107,22 @@ func init() {
 
 // Config holds the arguments for configuring an etcd server.
 type Config struct {
-	// member
+	CorsInfo       *cors.CORSInfo
+	LPUrls, LCUrls []url.URL
+	Dir            string `json:"data-dir"`
+	WalDir         string `json:"wal-dir"`
+	MaxSnapFiles   uint   `json:"max-snapshots"`
+	MaxWalFiles    uint   `json:"max-wals"`
+	Name           string `json:"name"`
+	SnapCount      uint64 `json:"snapshot-count"`
 
-	CorsInfo                *cors.CORSInfo
-	LPUrls, LCUrls          []url.URL
-	Dir                     string `json:"data-dir"`
-	WalDir                  string `json:"wal-dir"`
-	MaxSnapFiles            uint   `json:"max-snapshots"`
-	MaxWalFiles             uint   `json:"max-wals"`
-	Name                    string `json:"name"`
-	SnapCount               uint64 `json:"snapshot-count"`
-	AutoCompactionRetention int    `json:"auto-compaction-retention"`
-	AutoCompactionMode      string `json:"auto-compaction-mode"`
+	// AutoCompactionMode is either 'periodic' or 'revision'.
+	AutoCompactionMode string `json:"auto-compaction-mode"`
+	// AutoCompactionRetention is either duration string with time unit
+	// (e.g. '5m' for 5-minute), or revision unit (e.g. '5000').
+	// If no time unit is provided and compaction mode is 'periodic',
+	// the unit defaults to hour. For example, '5' translates into 5-hour.
+	AutoCompactionRetention string `json:"auto-compaction-retention"`
 
 	// TickMs is the number of milliseconds between heartbeat ticks.
 	// TODO: decouple tickMs and heartbeat tick (current heartbeat tick = 1).
@@ -95,8 +132,6 @@ type Config struct {
 	QuotaBackendBytes int64 `json:"quota-backend-bytes"`
 	MaxTxnOps         uint  `json:"max-txn-ops"`
 	MaxRequestBytes   uint  `json:"max-request-bytes"`
-
-	// gRPC server options
 
 	// GRPCKeepAliveMinTime is the minimum interval that a client should
 	// wait before pinging server. When client pings "too fast", server
@@ -113,36 +148,62 @@ type Config struct {
 	// before closing a non-responsive connection. 0 to disable.
 	GRPCKeepAliveTimeout time.Duration `json:"grpc-keepalive-timeout"`
 
-	// clustering
+	APUrls, ACUrls        []url.URL
+	ClusterState          string `json:"initial-cluster-state"`
+	DNSCluster            string `json:"discovery-srv"`
+	DNSClusterServiceName string `json:"discovery-srv-name"`
+	Dproxy                string `json:"discovery-proxy"`
+	Durl                  string `json:"discovery"`
+	InitialCluster        string `json:"initial-cluster"`
+	InitialClusterToken   string `json:"initial-cluster-token"`
+	StrictReconfigCheck   bool   `json:"strict-reconfig-check"`
+	EnableV2              bool   `json:"enable-v2"`
 
-	APUrls, ACUrls      []url.URL
-	ClusterState        string `json:"initial-cluster-state"`
-	DNSCluster          string `json:"discovery-srv"`
-	Dproxy              string `json:"discovery-proxy"`
-	Durl                string `json:"discovery"`
-	InitialCluster      string `json:"initial-cluster"`
-	InitialClusterToken string `json:"initial-cluster-token"`
-	StrictReconfigCheck bool   `json:"strict-reconfig-check"`
-	EnableV2            bool   `json:"enable-v2"`
-
-	// security
+	// PreVote is true to enable Raft Pre-Vote.
+	// If enabled, Raft runs an additional election phase
+	// to check whether it would get enough votes to win
+	// an election, thus minimizing disruptions.
+	// TODO: enable by default in 3.5.
+	PreVote bool `json:"pre-vote"`
 
 	ClientTLSInfo transport.TLSInfo
 	ClientAutoTLS bool
 	PeerTLSInfo   transport.TLSInfo
 	PeerAutoTLS   bool
 
-	// debug
+	// HostWhitelist lists acceptable hostnames from HTTP client requests.
+	// Client origin policy protects against "DNS Rebinding" attacks
+	// to insecure etcd servers. That is, any website can simply create
+	// an authorized DNS name, and direct DNS to "localhost" (or any
+	// other address). Then, all HTTP endpoints of etcd server listening
+	// on "localhost" becomes accessible, thus vulnerable to DNS rebinding
+	// attacks. See "CVE-2018-5702" for more detail.
+	//
+	// 1. If client connection is secure via HTTPS, allow any hostnames.
+	// 2. If client connection is not secure and "HostWhitelist" is not empty,
+	//    only allow HTTP requests whose Host field is listed in whitelist.
+	//
+	// Note that the client origin policy is enforced whether authentication
+	// is enabled or not, for tighter controls.
+	//
+	// By default, "HostWhitelist" is empty, which allows any hostnames.
+	// Note that when specifying hostnames, loopback addresses are not added
+	// automatically. To allow loopback interfaces, leave it empty or add them
+	// to whitelist manually (e.g. "localhost", "127.0.0.1", etc.).
+	//
+	// CVE-2018-5702 reference:
+	// - https://bugs.chromium.org/p/project-zero/issues/detail?id=1447#c2
+	// - https://github.com/transmission/transmission/pull/468
+	// - https://github.com/coreos/etcd/issues/9353
+	HostWhitelist []string `json:"host-whitelist"`
 
 	Debug                 bool   `json:"debug"`
 	LogPkgLevels          string `json:"log-package-levels"`
+	LogOutput             string `json:"log-output"`
 	EnablePprof           bool   `json:"enable-pprof"`
 	Metrics               string `json:"metrics"`
 	ListenMetricsUrls     []url.URL
 	ListenMetricsUrlsJSON string `json:"listen-metrics-urls"`
-
-	// ForceNewCluster starts a new cluster even if previously started; unsafe.
-	ForceNewCluster bool `json:"force-new-cluster"`
 
 	// UserHandlers is for registering users handlers and only used for
 	// embedding etcd into other applications.
@@ -158,14 +219,14 @@ type Config struct {
 	//	embed.StartEtcd(cfg)
 	ServiceRegister func(*grpc.Server) `json:"-"`
 
-	// auth
-
 	AuthToken string `json:"auth-token"`
 
-	// Experimental flags
+	ExperimentalInitialCorruptCheck bool          `json:"experimental-initial-corrupt-check"`
+	ExperimentalCorruptCheckTime    time.Duration `json:"experimental-corrupt-check-time"`
+	ExperimentalEnableV2V3          string        `json:"experimental-enable-v2v3"`
 
-	ExperimentalCorruptCheckTime time.Duration `json:"experimental-corrupt-check-time"`
-	ExperimentalEnableV2V3       string        `json:"experimental-enable-v2v3"`
+	// ForceNewCluster starts a new cluster even if previously started; unsafe.
+	ForceNewCluster bool `json:"force-new-cluster"`
 }
 
 // configYAML holds the config suitable for yaml parsing
@@ -186,7 +247,6 @@ type configJSON struct {
 }
 
 type securityConfig struct {
-	CAFile        string `json:"ca-file"`
 	CertFile      string `json:"cert-file"`
 	KeyFile       string `json:"key-file"`
 	CertAuth      bool   `json:"client-cert-auth"`
@@ -219,13 +279,69 @@ func NewConfig() *Config {
 		ACUrls:                []url.URL{*acurl},
 		ClusterState:          ClusterStateFlagNew,
 		InitialClusterToken:   "etcd-cluster",
-		StrictReconfigCheck:   true,
+		StrictReconfigCheck:   DefaultStrictReconfigCheck,
+		LogOutput:             DefaultLogOutput,
 		Metrics:               "basic",
-		EnableV2:              true,
+		EnableV2:              DefaultEnableV2,
+		HostWhitelist:         defaultHostWhitelist,
 		AuthToken:             "simple",
+		PreVote:               false, // TODO: enable by default in v3.5
 	}
 	cfg.InitialCluster = cfg.InitialClusterFromName(cfg.Name)
 	return cfg
+}
+
+func logTLSHandshakeFailure(conn *tls.Conn, err error) {
+	state := conn.ConnectionState()
+	remoteAddr := conn.RemoteAddr().String()
+	serverName := state.ServerName
+	if len(state.PeerCertificates) > 0 {
+		cert := state.PeerCertificates[0]
+		ips, dns := cert.IPAddresses, cert.DNSNames
+		plog.Infof("rejected connection from %q (error %q, ServerName %q, IPAddresses %q, DNSNames %q)", remoteAddr, err.Error(), serverName, ips, dns)
+	} else {
+		plog.Infof("rejected connection from %q (error %q, ServerName %q)", remoteAddr, err.Error(), serverName)
+	}
+}
+
+// SetupLogging initializes etcd logging.
+// Must be called after flag parsing.
+func (cfg *Config) SetupLogging() {
+	cfg.ClientTLSInfo.HandshakeFailure = logTLSHandshakeFailure
+	cfg.PeerTLSInfo.HandshakeFailure = logTLSHandshakeFailure
+
+	capnslog.SetGlobalLogLevel(capnslog.INFO)
+	if cfg.Debug {
+		capnslog.SetGlobalLogLevel(capnslog.DEBUG)
+		grpc.EnableTracing = true
+		// enable info, warning, error
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(os.Stderr, os.Stderr, os.Stderr))
+	} else {
+		// only discard info
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(ioutil.Discard, os.Stderr, os.Stderr))
+	}
+	if cfg.LogPkgLevels != "" {
+		repoLog := capnslog.MustRepoLogger("github.com/coreos/etcd")
+		settings, err := repoLog.ParseLogLevelConfig(cfg.LogPkgLevels)
+		if err != nil {
+			plog.Warningf("couldn't parse log level string: %s, continuing with default levels", err.Error())
+			return
+		}
+		repoLog.SetLogLevel(settings)
+	}
+
+	// capnslog initially SetFormatter(NewDefaultFormatter(os.Stderr))
+	// where NewDefaultFormatter returns NewJournaldFormatter when syscall.Getppid() == 1
+	// specify 'stdout' or 'stderr' to skip journald logging even when running under systemd
+	switch cfg.LogOutput {
+	case "stdout":
+		capnslog.SetFormatter(capnslog.NewPrettyFormatter(os.Stdout, cfg.Debug))
+	case "stderr":
+		capnslog.SetFormatter(capnslog.NewPrettyFormatter(os.Stderr, cfg.Debug))
+	case DefaultLogOutput:
+	default:
+		plog.Panicf(`unknown log-output %q (only supports %q, "stdout", "stderr")`, cfg.LogOutput, DefaultLogOutput)
+	}
 }
 
 func ConfigFromFile(path string) (*Config, error) {
@@ -304,7 +420,6 @@ func (cfg *configYAML) configFromFile(path string) error {
 	}
 
 	copySecurityDetails := func(tls *transport.TLSInfo, ysc *securityConfig) {
-		tls.CAFile = ysc.CAFile
 		tls.CertFile = ysc.CertFile
 		tls.KeyFile = ysc.KeyFile
 		tls.ClientCertAuth = ysc.CertAuth
@@ -318,6 +433,7 @@ func (cfg *configYAML) configFromFile(path string) error {
 	return cfg.Validate()
 }
 
+// Validate ensures that '*embed.Config' fields are properly configured.
 func (cfg *Config) Validate() error {
 	if err := checkBindURLs(cfg.LPUrls); err != nil {
 		return err
@@ -329,22 +445,19 @@ func (cfg *Config) Validate() error {
 		return err
 	}
 	if err := checkHostURLs(cfg.APUrls); err != nil {
-		// TODO: return err in v3.4
 		addrs := make([]string, len(cfg.APUrls))
 		for i := range cfg.APUrls {
 			addrs[i] = cfg.APUrls[i].String()
 		}
-		plog.Warningf("advertise-peer-urls %q is deprecated (%v)", strings.Join(addrs, ","), err)
+		return fmt.Errorf(`--initial-advertise-peer-urls %q must be "host:port" (%v)`, strings.Join(addrs, ","), err)
 	}
 	if err := checkHostURLs(cfg.ACUrls); err != nil {
-		// TODO: return err in v3.4
 		addrs := make([]string, len(cfg.ACUrls))
 		for i := range cfg.ACUrls {
 			addrs[i] = cfg.ACUrls[i].String()
 		}
-		plog.Warningf("advertise-client-urls %q is deprecated (%v)", strings.Join(addrs, ","), err)
+		return fmt.Errorf(`--advertise-client-urls %q must be "host:port" (%v)`, strings.Join(addrs, ","), err)
 	}
-
 	// Check if conflicting flags are passed.
 	nSet := 0
 	for _, v := range []bool{cfg.Durl != "", cfg.InitialCluster != "", cfg.DNSCluster != ""} {
@@ -361,6 +474,12 @@ func (cfg *Config) Validate() error {
 		return ErrConflictBootstrapFlags
 	}
 
+	if cfg.TickMs <= 0 {
+		return fmt.Errorf("--heartbeat-interval must be >0 (set to %dms)", cfg.TickMs)
+	}
+	if cfg.ElectionMs <= 0 {
+		return fmt.Errorf("--election-timeout must be >0 (set to %dms)", cfg.ElectionMs)
+	}
 	if 5*cfg.TickMs > cfg.ElectionMs {
 		return fmt.Errorf("--election-timeout[%vms] should be at least as 5 times as --heartbeat-interval[%vms]", cfg.ElectionMs, cfg.TickMs)
 	}
@@ -371,6 +490,13 @@ func (cfg *Config) Validate() error {
 	// check this last since proxying in etcdmain may make this OK
 	if cfg.LCUrls != nil && cfg.ACUrls == nil {
 		return ErrUnsetAdvertiseClientURLsFlag
+	}
+
+	switch cfg.AutoCompactionMode {
+	case "":
+	case CompactorModeRevision, CompactorModePeriodic:
+	default:
+		return fmt.Errorf("unknown auto-compaction-mode %q", cfg.AutoCompactionMode)
 	}
 
 	return nil
@@ -387,7 +513,8 @@ func (cfg *Config) PeerURLsMapAndToken(which string) (urlsmap types.URLsMap, tok
 		urlsmap[cfg.Name] = cfg.APUrls
 		token = cfg.Durl
 	case cfg.DNSCluster != "":
-		clusterStrs, cerr := srv.GetCluster("etcd-server", cfg.Name, cfg.DNSCluster, cfg.APUrls)
+		clusterStrs, cerr := cfg.GetDNSClusterNames()
+
 		if cerr != nil {
 			plog.Errorf("couldn't resolve during SRV discovery (%v)", cerr)
 			return nil, "", cerr
@@ -396,7 +523,7 @@ func (cfg *Config) PeerURLsMapAndToken(which string) (urlsmap types.URLsMap, tok
 			plog.Noticef("got bootstrap from DNS for etcd-server at %s", s)
 		}
 		clusterStr := strings.Join(clusterStrs, ",")
-		if strings.Contains(clusterStr, "https://") && cfg.PeerTLSInfo.CAFile == "" {
+		if strings.Contains(clusterStr, "https://") && cfg.PeerTLSInfo.TrustedCAFile == "" {
 			cfg.PeerTLSInfo.ServerName = cfg.DNSCluster
 		}
 		urlsmap, err = types.NewURLsMap(clusterStr)
@@ -412,6 +539,28 @@ func (cfg *Config) PeerURLsMapAndToken(which string) (urlsmap types.URLsMap, tok
 		urlsmap, err = types.NewURLsMap(cfg.InitialCluster)
 	}
 	return urlsmap, token, err
+}
+
+// GetDNSClusterNames uses DNS SRV records to get a list of initial nodes for cluster bootstrapping.
+func (cfg *Config) GetDNSClusterNames() ([]string, error) {
+	var (
+		clusterStrs       []string
+		cerr              error
+		serviceNameSuffix string
+	)
+	if cfg.DNSClusterServiceName != "" {
+		serviceNameSuffix = "-" + cfg.DNSClusterServiceName
+	}
+	// Use both etcd-server-ssl and etcd-server for discovery. Combine the results if both are available.
+	clusterStrs, cerr = srv.GetCluster("https", "etcd-server-ssl"+serviceNameSuffix, cfg.Name, cfg.DNSCluster, cfg.APUrls)
+	defaultHTTPClusterStrs, httpCerr := srv.GetCluster("http", "etcd-server"+serviceNameSuffix, cfg.Name, cfg.DNSCluster, cfg.APUrls)
+	if cerr != nil {
+		clusterStrs = make([]string, 0)
+	}
+	if httpCerr != nil {
+		clusterStrs = append(clusterStrs, defaultHTTPClusterStrs...)
+	}
+	return clusterStrs, cerr
 }
 
 func (cfg Config) InitialClusterFromName(name string) (ret string) {
@@ -508,7 +657,6 @@ func (cfg *Config) UpdateDefaultClusterFromName(defaultInitialCluster string) (s
 }
 
 // checkBindURLs returns an error if any URL uses a domain name.
-// TODO: return error in 3.2.0
 func checkBindURLs(urls []url.URL) error {
 	for _, url := range urls {
 		if url.Scheme == "unix" || url.Scheme == "unixs" {

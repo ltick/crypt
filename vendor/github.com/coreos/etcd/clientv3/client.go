@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coreos/etcd/clientv3/balancer"
 	"github.com/coreos/etcd/etcdserver/api/v3rpc/rpctypes"
 
 	"google.golang.org/grpc"
@@ -55,8 +56,8 @@ type Client struct {
 
 	cfg      Config
 	creds    *credentials.TransportCredentials
-	balancer balancer
-	mu       sync.Mutex
+	balancer *balancer.GRPC17Health
+	mu       *sync.Mutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -67,6 +68,8 @@ type Client struct {
 	Password string
 	// tokenCred is an instance of WithPerRPCCredentials()'s argument
 	tokenCred *authTokenCredential
+
+	callOpts []grpc.CallOption
 }
 
 // New creates a new etcdv3 client from a given configuration.
@@ -120,7 +123,14 @@ func (c *Client) SetEndpoints(eps ...string) {
 	c.mu.Lock()
 	c.cfg.Endpoints = eps
 	c.mu.Unlock()
-	c.balancer.updateAddrs(eps...)
+	c.balancer.UpdateAddrs(eps...)
+
+	if c.balancer.NeedUpdate() {
+		select {
+		case c.balancer.UpdateAddrsC() <- balancer.NotifyNext:
+		case <-c.balancer.StopC():
+		}
+	}
 }
 
 // Sync synchronizes client's endpoints with the known endpoints from the etcd membership.
@@ -151,7 +161,7 @@ func (c *Client) autoSync() {
 			err := c.Sync(ctx)
 			cancel()
 			if err != nil && err != c.ctx.Err() {
-				logger.Println("Auto sync endpoints failed:", err)
+				lg.Lvl(4).Infof("Auto sync endpoints failed: %v", err)
 			}
 		}
 	}
@@ -170,7 +180,7 @@ func (cred authTokenCredential) GetRequestMetadata(ctx context.Context, s ...str
 	cred.tokenMu.RLock()
 	defer cred.tokenMu.RUnlock()
 	return map[string]string{
-		"token": cred.token,
+		rpctypes.TokenFieldNameGRPC: cred.token,
 	}, nil
 }
 
@@ -179,7 +189,7 @@ func parseEndpoint(endpoint string) (proto string, host string, scheme string) {
 	host = endpoint
 	url, uerr := url.Parse(endpoint)
 	if uerr != nil || !strings.Contains(endpoint, "://") {
-		return
+		return proto, host, scheme
 	}
 	scheme = url.Scheme
 
@@ -193,7 +203,7 @@ func parseEndpoint(endpoint string) (proto string, host string, scheme string) {
 	default:
 		proto, host = "", ""
 	}
-	return
+	return proto, host, scheme
 }
 
 func (c *Client) processCreds(scheme string) (creds *credentials.TransportCredentials) {
@@ -212,7 +222,7 @@ func (c *Client) processCreds(scheme string) (creds *credentials.TransportCreden
 	default:
 		creds = nil
 	}
-	return
+	return creds
 }
 
 // dialSetupOpts gives the dial opts prior to any authentication
@@ -230,7 +240,7 @@ func (c *Client) dialSetupOpts(endpoint string, dopts ...grpc.DialOption) (opts 
 	opts = append(opts, dopts...)
 
 	f := func(host string, t time.Duration) (net.Conn, error) {
-		proto, host, _ := parseEndpoint(c.balancer.endpoint(host))
+		proto, host, _ := parseEndpoint(c.balancer.Endpoint(host))
 		if host == "" && endpoint != "" {
 			// dialing an endpoint not in the balancer; use
 			// endpoint passed into dial
@@ -282,7 +292,7 @@ func (c *Client) getToken(ctx context.Context) error {
 		endpoint := c.cfg.Endpoints[i]
 		host := getHost(endpoint)
 		// use dial options without dopts to avoid reusing the client balancer
-		auth, err = newAuthenticator(host, c.dialSetupOpts(endpoint))
+		auth, err = newAuthenticator(host, c.dialSetupOpts(endpoint), c)
 		if err != nil {
 			continue
 		}
@@ -372,15 +382,32 @@ func newClient(cfg *Config) (*Client, error) {
 		creds:    creds,
 		ctx:      ctx,
 		cancel:   cancel,
+		mu:       new(sync.Mutex),
+		callOpts: defaultCallOpts,
 	}
 	if cfg.Username != "" && cfg.Password != "" {
 		client.Username = cfg.Username
 		client.Password = cfg.Password
 	}
+	if cfg.MaxCallSendMsgSize > 0 || cfg.MaxCallRecvMsgSize > 0 {
+		if cfg.MaxCallRecvMsgSize > 0 && cfg.MaxCallSendMsgSize > cfg.MaxCallRecvMsgSize {
+			return nil, fmt.Errorf("gRPC message recv limit (%d bytes) must be greater than send limit (%d bytes)", cfg.MaxCallRecvMsgSize, cfg.MaxCallSendMsgSize)
+		}
+		callOpts := []grpc.CallOption{
+			defaultFailFast,
+			defaultMaxCallSendMsgSize,
+			defaultMaxCallRecvMsgSize,
+		}
+		if cfg.MaxCallSendMsgSize > 0 {
+			callOpts[1] = grpc.MaxCallSendMsgSize(cfg.MaxCallSendMsgSize)
+		}
+		if cfg.MaxCallRecvMsgSize > 0 {
+			callOpts[2] = grpc.MaxCallRecvMsgSize(cfg.MaxCallRecvMsgSize)
+		}
+		client.callOpts = callOpts
+	}
 
-	sb := newSimpleBalancer(cfg.Endpoints)
-	hc := func(ep string) (bool, error) { return grpcHealthCheck(client, ep) }
-	client.balancer = newHealthBalancer(sb, cfg.DialTimeout, hc)
+	client.balancer = balancer.NewGRPC17Health(cfg.Endpoints, cfg.DialTimeout, client.dial)
 
 	// use Endpoints[0] so that for https:// without any tls config given, then
 	// grpc will assume the certificate server name is the endpoint host.
@@ -397,7 +424,7 @@ func newClient(cfg *Config) (*Client, error) {
 		hasConn := false
 		waitc := time.After(cfg.DialTimeout)
 		select {
-		case <-client.balancer.ready():
+		case <-client.balancer.Ready():
 			hasConn = true
 		case <-ctx.Done():
 		case <-waitc:
@@ -453,7 +480,7 @@ func (c *Client) checkVersion() (err error) {
 			vs := strings.Split(resp.Version, ".")
 			maj, min := 0, 0
 			if len(vs) >= 2 {
-				maj, rerr = strconv.Atoi(vs[0])
+				maj, _ = strconv.Atoi(vs[0])
 				min, rerr = strconv.Atoi(vs[1])
 			}
 			if maj < 3 || (maj == 3 && min < 2) {
@@ -503,18 +530,19 @@ func toErr(ctx context.Context, err error) error {
 	if _, ok := err.(rpctypes.EtcdError); ok {
 		return err
 	}
-	ev, _ := status.FromError(err)
-	code := ev.Code()
-	switch code {
-	case codes.DeadlineExceeded:
-		fallthrough
-	case codes.Canceled:
-		if ctx.Err() != nil {
-			err = ctx.Err()
+	if ev, ok := status.FromError(err); ok {
+		code := ev.Code()
+		switch code {
+		case codes.DeadlineExceeded:
+			fallthrough
+		case codes.Canceled:
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			}
+		case codes.Unavailable:
+		case codes.FailedPrecondition:
+			err = grpc.ErrClientConnClosing
 		}
-	case codes.Unavailable:
-	case codes.FailedPrecondition:
-		err = grpc.ErrClientConnClosing
 	}
 	return err
 }
@@ -525,4 +553,12 @@ func canceledByCaller(stopCtx context.Context, err error) bool {
 	}
 
 	return err == context.Canceled || err == context.DeadlineExceeded
+}
+
+func getHost(ep string) string {
+	url, uerr := url.Parse(ep)
+	if uerr != nil || !strings.Contains(ep, "://") {
+		return ep
+	}
+	return url.Host
 }

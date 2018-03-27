@@ -16,16 +16,12 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
-	"google.golang.org/grpc/grpclog"
 )
-
-func init() { grpclog.SetLoggerV2(grpclog.NewLoggerV2(os.Stderr, os.Stderr, os.Stderr)) }
 
 type Stresser interface {
 	// Stress starts to stress the etcd cluster
@@ -55,7 +51,7 @@ func (s *nopStresser) ModifiedKeys() int64 {
 func (s *nopStresser) Checker() Checker { return nil }
 
 // compositeStresser implements a Stresser that runs a slice of
-// stressers concurrently.
+// stressing clients concurrently.
 type compositeStresser struct {
 	stressers []Stresser
 }
@@ -117,9 +113,11 @@ func (cs *compositeStresser) Checker() Checker {
 }
 
 type stressConfig struct {
-	keyLargeSize   int
-	keySize        int
-	keySuffixRange int
+	keyLargeSize      int
+	keySize           int
+	keySuffixRange    int
+	keyTxnSuffixRange int
+	keyTxnOps         int
 
 	numLeases    int
 	keysPerLease int
@@ -143,15 +141,17 @@ func NewStresser(s string, sc *stressConfig, m *member) Stresser {
 	case "nop":
 		return &nopStresser{start: time.Now(), qps: int(sc.rateLimiter.Limit())}
 	case "keys":
-		// TODO: Too intensive stressers can panic etcd member with
+		// TODO: Too intensive stressing clients can panic etcd member with
 		// 'out of memory' error. Put rate limits in server side.
 		return &keyStresser{
-			Endpoint:       m.grpcAddr(),
-			keyLargeSize:   sc.keyLargeSize,
-			keySize:        sc.keySize,
-			keySuffixRange: sc.keySuffixRange,
-			N:              100,
-			rateLimiter:    sc.rateLimiter,
+			Endpoint:          m.grpcAddr(),
+			keyLargeSize:      sc.keyLargeSize,
+			keySize:           sc.keySize,
+			keySuffixRange:    sc.keySuffixRange,
+			keyTxnSuffixRange: sc.keyTxnSuffixRange,
+			keyTxnOps:         sc.keyTxnOps,
+			N:                 100,
+			rateLimiter:       sc.rateLimiter,
 		}
 	case "v2keys":
 		return &v2Stresser{

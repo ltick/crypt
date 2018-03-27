@@ -18,6 +18,7 @@ type Client struct {
 	user     string
 	password string
 	errors   chan error
+	logger backend.Logger
 }
 
 var client *Client
@@ -128,6 +129,11 @@ func (c *Client) WatchWithContext(ctx context.Context, key string, stop chan boo
 		}
 	}()
 	return respChan
+}
+
+func (c *Client) SetLogger(l backend.Logger) {
+	c.logger = l
+	c.client.SetLogger(l)
 }
 
 func (c *Client) addAuth() error {

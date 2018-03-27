@@ -29,31 +29,36 @@ import (
 )
 
 type member struct {
-	Agent        client.Agent
-	Endpoint     string
-	Name         string
-	ClientURL    string
-	PeerURL      string
-	FailpointURL string
+	Agent              client.Agent
+	Endpoint           string
+	Name               string
+	ClientURL          string
+	AdvertiseClientURL string
+	PeerURL            string
+	AdvertisePeerURL   string
+	FailpointURL       string
 }
 
-func (m *member) ClusterEntry() string { return m.Name + "=" + m.PeerURL }
+func (m *member) ClusterEntry() string { return m.Name + "=" + m.AdvertisePeerURL }
 
 func (m *member) Flags() []string {
 	return []string{
 		"--name", m.Name,
 		"--listen-client-urls", m.ClientURL,
-		"--advertise-client-urls", m.ClientURL,
+		"--advertise-client-urls", m.AdvertiseClientURL,
 		"--listen-peer-urls", m.PeerURL,
-		"--initial-advertise-peer-urls", m.PeerURL,
+		"--initial-advertise-peer-urls", m.AdvertisePeerURL,
 		"--initial-cluster-state", "new",
+		"--snapshot-count", "10000",
+		"--pre-vote",
+		"--experimental-initial-corrupt-check",
 	}
 }
 
 func (m *member) CheckCompact(rev int64) error {
 	cli, err := m.newClientV3()
 	if err != nil {
-		return fmt.Errorf("%v (endpoint %s)", err, m.ClientURL)
+		return fmt.Errorf("%v (endpoint %s)", err, m.AdvertiseClientURL)
 	}
 	defer cli.Close()
 
@@ -63,29 +68,29 @@ func (m *member) CheckCompact(rev int64) error {
 	cancel()
 
 	if !ok {
-		return fmt.Errorf("watch channel terminated (endpoint %s)", m.ClientURL)
+		return fmt.Errorf("watch channel terminated (endpoint %s)", m.AdvertiseClientURL)
 	}
 	if wr.CompactRevision != rev {
-		return fmt.Errorf("got compact revision %v, wanted %v (endpoint %s)", wr.CompactRevision, rev, m.ClientURL)
+		return fmt.Errorf("got compact revision %v, wanted %v (endpoint %s)", wr.CompactRevision, rev, m.AdvertiseClientURL)
 	}
 
 	return nil
 }
 
 func (m *member) Defrag() error {
-	plog.Printf("defragmenting %s\n", m.ClientURL)
+	plog.Printf("defragmenting %s", m.AdvertiseClientURL)
 	cli, err := m.newClientV3()
 	if err != nil {
 		return err
 	}
 	defer cli.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	_, err = cli.Defragment(ctx, m.ClientURL)
+	_, err = cli.Defragment(ctx, m.AdvertiseClientURL)
 	cancel()
 	if err != nil {
 		return err
 	}
-	plog.Printf("defragmented %s\n", m.ClientURL)
+	plog.Printf("defragmented %s", m.AdvertiseClientURL)
 	return nil
 }
 
@@ -113,7 +118,7 @@ func (m *member) Rev(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	defer cli.Close()
-	resp, err := cli.Status(ctx, m.ClientURL)
+	resp, err := cli.Status(ctx, m.AdvertiseClientURL)
 	if err != nil {
 		return 0, err
 	}
@@ -126,7 +131,7 @@ func (m *member) IsLeader() (bool, error) {
 		return false, err
 	}
 	defer cli.Close()
-	resp, err := cli.Status(context.Background(), m.ClientURL)
+	resp, err := cli.Status(context.Background(), m.AdvertiseClientURL)
 	if err != nil {
 		return false, err
 	}
@@ -136,7 +141,7 @@ func (m *member) IsLeader() (bool, error) {
 func (m *member) SetHealthKeyV3() error {
 	cli, err := m.newClientV3()
 	if err != nil {
-		return fmt.Errorf("%v (%s)", err, m.ClientURL)
+		return fmt.Errorf("%v (%s)", err, m.AdvertiseClientURL)
 	}
 	defer cli.Close()
 	// give enough time-out in case expensive requests (range/delete) are pending
@@ -144,14 +149,14 @@ func (m *member) SetHealthKeyV3() error {
 	_, err = cli.Put(ctx, "health", "good")
 	cancel()
 	if err != nil {
-		return fmt.Errorf("%v (%s)", err, m.ClientURL)
+		return fmt.Errorf("%v (%s)", err, m.AdvertiseClientURL)
 	}
 	return nil
 }
 
 func (m *member) newClientV3() (*clientv3.Client, error) {
 	return clientv3.New(clientv3.Config{
-		Endpoints:   []string{m.ClientURL},
+		Endpoints:   []string{m.AdvertiseClientURL},
 		DialTimeout: 5 * time.Second,
 	})
 }
@@ -162,7 +167,7 @@ func (m *member) dialGRPC() (*grpc.ClientConn, error) {
 
 // grpcAddr gets the host from clientURL so it works with grpc.Dial()
 func (m *member) grpcAddr() string {
-	u, err := url.Parse(m.ClientURL)
+	u, err := url.Parse(m.AdvertiseClientURL)
 	if err != nil {
 		panic(err)
 	}
@@ -170,7 +175,7 @@ func (m *member) grpcAddr() string {
 }
 
 func (m *member) peerPort() (port int) {
-	u, err := url.Parse(m.PeerURL)
+	u, err := url.Parse(m.AdvertisePeerURL)
 	if err != nil {
 		panic(err)
 	}

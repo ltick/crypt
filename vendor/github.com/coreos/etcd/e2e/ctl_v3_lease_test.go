@@ -19,57 +19,168 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCtlV3LeaseGrantTimeToLive(t *testing.T) { testCtl(t, leaseTestGrantTimeToLive) }
-func TestCtlV3LeaseGrantLeases(t *testing.T)     { testCtl(t, leaseTestGrantLeasesList) }
-func TestCtlV3LeaseKeepAlive(t *testing.T)       { testCtl(t, leaseTestKeepAlive) }
-func TestCtlV3LeaseRevoke(t *testing.T)          { testCtl(t, leaseTestRevoke) }
+func TestCtlV3LeaseGrantTimeToLiveNoTLS(t *testing.T) {
+	testCtl(t, leaseTestGrantTimeToLive, withCfg(configNoTLS))
+}
+func TestCtlV3LeaseGrantTimeToLiveClientTLS(t *testing.T) {
+	testCtl(t, leaseTestGrantTimeToLive, withCfg(configClientTLS))
+}
+func TestCtlV3LeaseGrantTimeToLiveClientAutoTLS(t *testing.T) {
+	testCtl(t, leaseTestGrantTimeToLive, withCfg(configClientAutoTLS))
+}
+func TestCtlV3LeaseGrantTimeToLivePeerTLS(t *testing.T) {
+	testCtl(t, leaseTestGrantTimeToLive, withCfg(configPeerTLS))
+}
+
+func TestCtlV3LeaseGrantLeases(t *testing.T) { testCtl(t, leaseTestGrantLeaseListed) }
+func TestCtlV3LeaseGrantLeasesNoTLS(t *testing.T) {
+	testCtl(t, leaseTestGrantLeaseListed, withCfg(configNoTLS))
+}
+func TestCtlV3LeaseGrantLeasesClientTLS(t *testing.T) {
+	testCtl(t, leaseTestGrantLeaseListed, withCfg(configClientTLS))
+}
+func TestCtlV3LeaseGrantLeasesClientAutoTLS(t *testing.T) {
+	testCtl(t, leaseTestGrantLeaseListed, withCfg(configClientAutoTLS))
+}
+func TestCtlV3LeaseGrantLeasesPeerTLS(t *testing.T) {
+	testCtl(t, leaseTestGrantLeaseListed, withCfg(configPeerTLS))
+}
+
+func TestCtlV3LeaseTestTimeToLiveExpired(t *testing.T) { testCtl(t, leaseTestTimeToLiveExpired) }
+func TestCtlV3LeaseTestTimeToLiveExpiredNoTLS(t *testing.T) {
+	testCtl(t, leaseTestTimeToLiveExpired, withCfg(configNoTLS))
+}
+func TestCtlV3LeaseTestTimeToLiveExpiredClientTLS(t *testing.T) {
+	testCtl(t, leaseTestTimeToLiveExpired, withCfg(configClientTLS))
+}
+func TestCtlV3LeaseTestTimeToLiveExpiredClientAutoTLS(t *testing.T) {
+	testCtl(t, leaseTestTimeToLiveExpired, withCfg(configClientAutoTLS))
+}
+func TestCtlV3LeaseTestTimeToLiveExpiredPeerTLS(t *testing.T) {
+	testCtl(t, leaseTestTimeToLiveExpired, withCfg(configPeerTLS))
+}
+
+func TestCtlV3LeaseKeepAlive(t *testing.T)      { testCtl(t, leaseTestKeepAlive) }
+func TestCtlV3LeaseKeepAliveNoTLS(t *testing.T) { testCtl(t, leaseTestKeepAlive, withCfg(configNoTLS)) }
+func TestCtlV3LeaseKeepAliveClientTLS(t *testing.T) {
+	testCtl(t, leaseTestKeepAlive, withCfg(configClientTLS))
+}
+func TestCtlV3LeaseKeepAliveClientAutoTLS(t *testing.T) {
+	testCtl(t, leaseTestKeepAlive, withCfg(configClientAutoTLS))
+}
+func TestCtlV3LeaseKeepAlivePeerTLS(t *testing.T) {
+	testCtl(t, leaseTestKeepAlive, withCfg(configPeerTLS))
+}
+
+func TestCtlV3LeaseKeepAliveOnce(t *testing.T) { testCtl(t, leaseTestKeepAliveOnce) }
+func TestCtlV3LeaseKeepAliveOnceNoTLS(t *testing.T) {
+	testCtl(t, leaseTestKeepAliveOnce, withCfg(configNoTLS))
+}
+func TestCtlV3LeaseKeepAliveOnceClientTLS(t *testing.T) {
+	testCtl(t, leaseTestKeepAliveOnce, withCfg(configClientTLS))
+}
+func TestCtlV3LeaseKeepAliveOnceClientAutoTLS(t *testing.T) {
+	testCtl(t, leaseTestKeepAliveOnce, withCfg(configClientAutoTLS))
+}
+func TestCtlV3LeaseKeepAliveOncePeerTLS(t *testing.T) {
+	testCtl(t, leaseTestKeepAliveOnce, withCfg(configPeerTLS))
+}
+
+func TestCtlV3LeaseRevoke(t *testing.T)      { testCtl(t, leaseTestRevoked) }
+func TestCtlV3LeaseRevokeNoTLS(t *testing.T) { testCtl(t, leaseTestRevoked, withCfg(configNoTLS)) }
+func TestCtlV3LeaseRevokeClientTLS(t *testing.T) {
+	testCtl(t, leaseTestRevoked, withCfg(configClientTLS))
+}
+func TestCtlV3LeaseRevokeClientAutoTLS(t *testing.T) {
+	testCtl(t, leaseTestRevoked, withCfg(configClientAutoTLS))
+}
+func TestCtlV3LeaseRevokePeerTLS(t *testing.T) { testCtl(t, leaseTestRevoked, withCfg(configPeerTLS)) }
 
 func leaseTestGrantTimeToLive(cx ctlCtx) {
 	id, err := ctlV3LeaseGrant(cx, 10)
 	if err != nil {
-		cx.t.Fatal(err)
+		cx.t.Fatalf("leaseTestGrantTimeToLive: ctlV3LeaseGrant error (%v)", err)
 	}
 
 	cmdArgs := append(cx.PrefixArgs(), "lease", "timetolive", id, "--keys")
 	proc, err := spawnCmd(cmdArgs)
 	if err != nil {
-		cx.t.Fatal(err)
+		cx.t.Fatalf("leaseTestGrantTimeToLive: error (%v)", err)
 	}
 	line, err := proc.Expect(" granted with TTL(")
 	if err != nil {
-		cx.t.Fatal(err)
+		cx.t.Fatalf("leaseTestGrantTimeToLive: error (%v)", err)
 	}
 	if err = proc.Close(); err != nil {
-		cx.t.Fatal(err)
+		cx.t.Fatalf("leaseTestGrantTimeToLive: error (%v)", err)
 	}
 	if !strings.Contains(line, ", attached keys") {
-		cx.t.Fatalf("expected 'attached keys', got %q", line)
+		cx.t.Fatalf("leaseTestGrantTimeToLive: expected 'attached keys', got %q", line)
 	}
 	if !strings.Contains(line, id) {
-		cx.t.Fatalf("expected leaseID %q, got %q", id, line)
+		cx.t.Fatalf("leaseTestGrantTimeToLive: expected leaseID %q, got %q", id, line)
 	}
 }
 
-func leaseTestGrantLeasesList(cx ctlCtx) {
+func leaseTestGrantLeaseListed(cx ctlCtx) {
+	err := leaseTestGrantLeasesList(cx)
+	if err != nil {
+		cx.t.Fatalf("leaseTestGrantLeasesList: (%v)", err)
+	}
+}
+
+func leaseTestGrantLeasesList(cx ctlCtx) error {
 	id, err := ctlV3LeaseGrant(cx, 10)
 	if err != nil {
-		cx.t.Fatal(err)
+		return fmt.Errorf("ctlV3LeaseGrant error (%v)", err)
 	}
 
 	cmdArgs := append(cx.PrefixArgs(), "lease", "list")
 	proc, err := spawnCmd(cmdArgs)
 	if err != nil {
-		cx.t.Fatal(err)
+		return fmt.Errorf("lease list failed (%v)", err)
 	}
 	_, err = proc.Expect(id)
 	if err != nil {
-		cx.t.Fatal(err)
+		return fmt.Errorf("lease id not in returned list (%v)", err)
 	}
 	if err = proc.Close(); err != nil {
-		cx.t.Fatal(err)
+		return err
 	}
+	return nil
+}
+
+func leaseTestTimeToLiveExpired(cx ctlCtx) {
+	err := leaseTestTimeToLiveExpire(cx, 3)
+	if err != nil {
+		cx.t.Fatalf("leaseTestTimeToLiveExpire: (%v)", err)
+	}
+}
+
+func leaseTestTimeToLiveExpire(cx ctlCtx, ttl int) error {
+	leaseID, err := ctlV3LeaseGrant(cx, ttl)
+	if err != nil {
+		return fmt.Errorf("ctlV3LeaseGrant error (%v)", err)
+	}
+
+	if err = ctlV3Put(cx, "key", "val", leaseID); err != nil {
+		return fmt.Errorf("ctlV3Put error (%v)", err)
+	}
+	// eliminate false positive
+	time.Sleep(time.Duration(ttl+1) * time.Second)
+	cmdArgs := append(cx.PrefixArgs(), "lease", "timetolive", leaseID)
+	exp := fmt.Sprintf("lease %s already expired", leaseID)
+	if err = spawnWithExpect(cmdArgs, exp); err != nil {
+		return fmt.Errorf("lease not properly expired: (%v)", err)
+	}
+	if err := ctlV3Get(cx, []string{"key"}); err != nil {
+		return fmt.Errorf("ctlV3Get error (%v)", err)
+	}
+	return nil
 }
 
 func leaseTestKeepAlive(cx ctlCtx) {
@@ -89,21 +200,46 @@ func leaseTestKeepAlive(cx ctlCtx) {
 	}
 }
 
-func leaseTestRevoke(cx ctlCtx) {
+func leaseTestKeepAliveOnce(cx ctlCtx) {
+	// put with TTL 10 seconds and keep-alive once
+	leaseID, err := ctlV3LeaseGrant(cx, 10)
+	if err != nil {
+		cx.t.Fatalf("leaseTestKeepAlive: ctlV3LeaseGrant error (%v)", err)
+	}
+	if err := ctlV3Put(cx, "key", "val", leaseID); err != nil {
+		cx.t.Fatalf("leaseTestKeepAlive: ctlV3Put error (%v)", err)
+	}
+	if err := ctlV3LeaseKeepAliveOnce(cx, leaseID); err != nil {
+		cx.t.Fatalf("leaseTestKeepAlive: ctlV3LeaseKeepAliveOnce error (%v)", err)
+	}
+	if err := ctlV3Get(cx, []string{"key"}, kv{"key", "val"}); err != nil {
+		cx.t.Fatalf("leaseTestKeepAlive: ctlV3Get error (%v)", err)
+	}
+}
+
+func leaseTestRevoked(cx ctlCtx) {
+	err := leaseTestRevoke(cx)
+	if err != nil {
+		cx.t.Fatalf("leaseTestRevoke: (%v)", err)
+	}
+}
+
+func leaseTestRevoke(cx ctlCtx) error {
 	// put with TTL 10 seconds and revoke
 	leaseID, err := ctlV3LeaseGrant(cx, 10)
 	if err != nil {
-		cx.t.Fatalf("leaseTestRevoke: ctlV3LeaseGrant error (%v)", err)
+		return fmt.Errorf("ctlV3LeaseGrant error (%v)", err)
 	}
 	if err := ctlV3Put(cx, "key", "val", leaseID); err != nil {
-		cx.t.Fatalf("leaseTestRevoke: ctlV3Put error (%v)", err)
+		return fmt.Errorf("ctlV3Put error (%v)", err)
 	}
 	if err := ctlV3LeaseRevoke(cx, leaseID); err != nil {
-		cx.t.Fatalf("leaseTestRevoke: ctlV3LeaseRevok error (%v)", err)
+		return fmt.Errorf("ctlV3LeaseRevoke error (%v)", err)
 	}
 	if err := ctlV3Get(cx, []string{"key"}); err != nil { // expect no output
-		cx.t.Fatalf("leaseTestRevoke: ctlV3Get error (%v)", err)
+		return fmt.Errorf("ctlV3Get error (%v)", err)
 	}
+	return nil
 }
 
 func ctlV3LeaseGrant(cx ctlCtx, ttl int) (string, error) {
@@ -131,6 +267,20 @@ func ctlV3LeaseGrant(cx ctlCtx, ttl int) (string, error) {
 
 func ctlV3LeaseKeepAlive(cx ctlCtx, leaseID string) error {
 	cmdArgs := append(cx.PrefixArgs(), "lease", "keep-alive", leaseID)
+
+	proc, err := spawnCmd(cmdArgs)
+	if err != nil {
+		return err
+	}
+
+	if _, err = proc.Expect(fmt.Sprintf("lease %s keepalived with TTL(", leaseID)); err != nil {
+		return err
+	}
+	return proc.Stop()
+}
+
+func ctlV3LeaseKeepAliveOnce(cx ctlCtx, leaseID string) error {
+	cmdArgs := append(cx.PrefixArgs(), "lease", "keep-alive", "--once", leaseID)
 
 	proc, err := spawnCmd(cmdArgs)
 	if err != nil {

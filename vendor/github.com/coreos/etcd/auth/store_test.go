@@ -19,11 +19,13 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/coreos/etcd/auth/authpb"
+	"github.com/coreos/etcd/etcdserver/api/v3rpc/rpctypes"
 	pb "github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/coreos/etcd/mvcc/backend"
 
@@ -198,7 +200,7 @@ func TestUserChangePassword(t *testing.T) {
 	as, tearDown := setupAuthStore(t)
 	defer tearDown(t)
 
-	ctx1 := context.WithValue(context.WithValue(context.TODO(), "index", uint64(1)), "simpleToken", "dummy")
+	ctx1 := context.WithValue(context.WithValue(context.TODO(), AuthenticateParamIndex{}, uint64(1)), AuthenticateParamSimpleTokenPrefix{}, "dummy")
 	_, err := as.Authenticate(ctx1, "foo", "bar")
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +211,7 @@ func TestUserChangePassword(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx2 := context.WithValue(context.WithValue(context.TODO(), "index", uint64(2)), "simpleToken", "dummy")
+	ctx2 := context.WithValue(context.WithValue(context.TODO(), AuthenticateParamIndex{}, uint64(2)), AuthenticateParamSimpleTokenPrefix{}, "dummy")
 	_, err = as.Authenticate(ctx2, "foo", "baz")
 	if err != nil {
 		t.Fatal(err)
@@ -363,8 +365,8 @@ func TestRoleRevokePermission(t *testing.T) {
 
 	_, err = as.RoleRevokePermission(&pb.AuthRoleRevokePermissionRequest{
 		Role:     "role-test-1",
-		Key:      "Keys",
-		RangeEnd: "RangeEnd",
+		Key:      []byte("Keys"),
+		RangeEnd: []byte("RangeEnd"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -460,25 +462,25 @@ func TestAuthInfoFromCtx(t *testing.T) {
 		t.Errorf("expected (nil, nil), got (%v, %v)", ai, err)
 	}
 
-	ctx = context.WithValue(context.WithValue(context.TODO(), "index", uint64(1)), "simpleToken", "dummy")
+	ctx = context.WithValue(context.WithValue(context.TODO(), AuthenticateParamIndex{}, uint64(1)), AuthenticateParamSimpleTokenPrefix{}, "dummy")
 	resp, err := as.Authenticate(ctx, "foo", "bar")
 	if err != nil {
 		t.Error(err)
 	}
 
-	ctx = metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{"token": "Invalid Token"}))
+	ctx = metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{rpctypes.TokenFieldNameGRPC: "Invalid Token"}))
 	_, err = as.AuthInfoFromCtx(ctx)
 	if err != ErrInvalidAuthToken {
 		t.Errorf("expected %v, got %v", ErrInvalidAuthToken, err)
 	}
 
-	ctx = metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{"token": "Invalid.Token"}))
+	ctx = metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{rpctypes.TokenFieldNameGRPC: "Invalid.Token"}))
 	_, err = as.AuthInfoFromCtx(ctx)
 	if err != ErrInvalidAuthToken {
 		t.Errorf("expected %v, got %v", ErrInvalidAuthToken, err)
 	}
 
-	ctx = metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{"token": resp.Token}))
+	ctx = metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{rpctypes.TokenFieldNameGRPC: resp.Token}))
 	ai, err = as.AuthInfoFromCtx(ctx)
 	if err != nil {
 		t.Error(err)
@@ -493,7 +495,7 @@ func TestAuthDisable(t *testing.T) {
 	defer tearDown(t)
 
 	as.AuthDisable()
-	ctx := context.WithValue(context.WithValue(context.TODO(), "index", uint64(2)), "simpleToken", "dummy")
+	ctx := context.WithValue(context.WithValue(context.TODO(), AuthenticateParamIndex{}, uint64(2)), AuthenticateParamSimpleTokenPrefix{}, "dummy")
 	_, err := as.Authenticate(ctx, "foo", "bar")
 	if err != ErrAuthNotEnabled {
 		t.Errorf("expected %v, got %v", ErrAuthNotEnabled, err)
@@ -522,7 +524,7 @@ func TestAuthInfoFromCtxRace(t *testing.T) {
 	donec := make(chan struct{})
 	go func() {
 		defer close(donec)
-		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{"token": "test"}))
+		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{rpctypes.TokenFieldNameGRPC: "test"}))
 		as.AuthInfoFromCtx(ctx)
 	}()
 	as.UserAdd(&pb.AuthUserAddRequest{Name: "test"})
@@ -587,7 +589,7 @@ func TestRecoverFromSnapshot(t *testing.T) {
 		a.Close()
 	}(as2)
 
-	if !as2.isAuthEnabled() {
+	if !as2.IsAuthEnabled() {
 		t.Fatal("recovering authStore from existing backend failed")
 	}
 
@@ -641,7 +643,7 @@ func TestHammerSimpleAuthenticate(t *testing.T) {
 			go func(user string) {
 				defer wg.Done()
 				token := fmt.Sprintf("%s(%d)", user, i)
-				ctx := context.WithValue(context.WithValue(context.TODO(), "index", uint64(1)), "simpleToken", token)
+				ctx := context.WithValue(context.WithValue(context.TODO(), AuthenticateParamIndex{}, uint64(1)), AuthenticateParamSimpleTokenPrefix{}, token)
 				if _, err := as.Authenticate(ctx, user, "123"); err != nil {
 					t.Fatal(err)
 				}
@@ -652,5 +654,82 @@ func TestHammerSimpleAuthenticate(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 		wg.Wait()
+	}
+}
+
+// TestRolesOrder tests authpb.User.Roles is sorted
+func TestRolesOrder(t *testing.T) {
+	b, tPath := backend.NewDefaultTmpBackend()
+	defer os.Remove(tPath)
+
+	tp, err := NewTokenProvider("simple", dummyIndexWaiter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	as := NewAuthStore(b, tp)
+	err = enableAuthAndCreateRoot(as)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	username := "user"
+	_, err = as.UserAdd(&pb.AuthUserAddRequest{Name: username, Password: "pass"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	roles := []string{"role1", "role2", "abc", "xyz", "role3"}
+	for _, role := range roles {
+		_, err = as.RoleAdd(&pb.AuthRoleAddRequest{Name: role})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = as.UserGrantRole(&pb.AuthUserGrantRoleRequest{User: username, Role: role})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	user, err := as.UserGet(&pb.AuthUserGetRequest{Name: username})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 1; i < len(user.Roles); i++ {
+		if strings.Compare(user.Roles[i-1], user.Roles[i]) != -1 {
+			t.Errorf("User.Roles isn't sorted (%s vs %s)", user.Roles[i-1], user.Roles[i])
+		}
+	}
+}
+
+// TestAuthInfoFromCtxWithRoot ensures "WithRoot" properly embeds token in the context.
+func TestAuthInfoFromCtxWithRoot(t *testing.T) {
+	b, tPath := backend.NewDefaultTmpBackend()
+	defer os.Remove(tPath)
+
+	tp, err := NewTokenProvider("simple", dummyIndexWaiter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	as := NewAuthStore(b, tp)
+	defer as.Close()
+
+	if err = enableAuthAndCreateRoot(as); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	ctx = as.WithRoot(ctx)
+
+	ai, aerr := as.AuthInfoFromCtx(ctx)
+	if aerr != nil {
+		t.Error(err)
+	}
+	if ai == nil {
+		t.Error("expected non-nil *AuthInfo")
+	}
+	if ai.Username != "root" {
+		t.Errorf("expected user name 'root', got %+v", ai)
 	}
 }

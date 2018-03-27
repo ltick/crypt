@@ -25,7 +25,7 @@ import (
 	pb "github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/coreos/etcd/mvcc"
 	"github.com/coreos/etcd/mvcc/backend"
-	"github.com/coreos/etcd/pkg/types"
+	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/version"
 )
 
@@ -38,17 +38,14 @@ type BackendGetter interface {
 }
 
 type Alarmer interface {
+	// Alarms is implemented in Server interface located in etcdserver/server.go
+	// It returns a list of alarms present in the AlarmStore
+	Alarms() []*pb.AlarmMember
 	Alarm(ctx context.Context, ar *pb.AlarmRequest) (*pb.AlarmResponse, error)
 }
 
 type LeaderTransferrer interface {
 	MoveLeader(ctx context.Context, lead, target uint64) error
-}
-
-type RaftStatusGetter interface {
-	etcdserver.RaftTimer
-	ID() types.ID
-	Leader() types.ID
 }
 
 type AuthGetter interface {
@@ -57,7 +54,7 @@ type AuthGetter interface {
 }
 
 type maintenanceServer struct {
-	rg  RaftStatusGetter
+	rg  etcdserver.RaftStatusGetter
 	kg  KVGetter
 	bg  BackendGetter
 	a   Alarmer
@@ -152,15 +149,24 @@ func (ms *maintenanceServer) Alarm(ctx context.Context, ar *pb.AlarmRequest) (*p
 }
 
 func (ms *maintenanceServer) Status(ctx context.Context, ar *pb.StatusRequest) (*pb.StatusResponse, error) {
+	hdr := &pb.ResponseHeader{}
+	ms.hdr.fill(hdr)
 	resp := &pb.StatusResponse{
-		Header:    &pb.ResponseHeader{Revision: ms.hdr.rev()},
-		Version:   version.Version,
-		DbSize:    ms.bg.Backend().Size(),
-		Leader:    uint64(ms.rg.Leader()),
-		RaftIndex: ms.rg.Index(),
-		RaftTerm:  ms.rg.Term(),
+		Header:           hdr,
+		Version:          version.Version,
+		Leader:           uint64(ms.rg.Leader()),
+		RaftIndex:        ms.rg.CommittedIndex(),
+		RaftAppliedIndex: ms.rg.AppliedIndex(),
+		RaftTerm:         ms.rg.Term(),
+		DbSize:           ms.bg.Backend().Size(),
+		DbSizeInUse:      ms.bg.Backend().SizeInUse(),
 	}
-	ms.hdr.fill(resp.Header)
+	if resp.Leader == raft.None {
+		resp.Errors = append(resp.Errors, etcdserver.ErrNoLeader.Error())
+	}
+	for _, a := range ms.a.Alarms() {
+		resp.Errors = append(resp.Errors, a.String())
+	}
 	return resp, nil
 }
 

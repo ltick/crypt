@@ -16,6 +16,7 @@ package embed
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	defaultLog "log"
 	"net"
@@ -33,10 +34,12 @@ import (
 	"github.com/coreos/etcd/etcdserver/api/v3rpc"
 	etcdservergw "github.com/coreos/etcd/etcdserver/etcdserverpb/gw"
 	"github.com/coreos/etcd/pkg/debugutil"
+	"github.com/coreos/etcd/pkg/httputil"
 	"github.com/coreos/etcd/pkg/transport"
 
 	gw "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/soheilhy/cmux"
+	"github.com/tmc/grpc-websocket-proxy/wsproxy"
 	"golang.org/x/net/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -53,13 +56,19 @@ type serveCtx struct {
 
 	userHandlers    map[string]http.Handler
 	serviceRegister func(*grpc.Server)
-	grpcServerC     chan *grpc.Server
+	serversC        chan *servers
+}
+
+type servers struct {
+	secure bool
+	grpc   *grpc.Server
+	http   *http.Server
 }
 
 func newServeCtx() *serveCtx {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &serveCtx{ctx: ctx, cancel: cancel, userHandlers: make(map[string]http.Handler),
-		grpcServerC: make(chan *grpc.Server, 2), // in case sctx.insecure,sctx.secure true
+		serversC: make(chan *servers, 2), // in case sctx.insecure,sctx.secure true
 	}
 }
 
@@ -71,7 +80,7 @@ func (sctx *serveCtx) serve(
 	tlsinfo *transport.TLSInfo,
 	handler http.Handler,
 	errHandler func(error),
-	gopts ...grpc.ServerOption) error {
+	gopts ...grpc.ServerOption) (err error) {
 	logger := defaultLog.New(ioutil.Discard, "etcdhttp", 0)
 	<-s.ReadyNotify()
 	plog.Info("ready to serve client requests")
@@ -81,9 +90,15 @@ func (sctx *serveCtx) serve(
 	servElection := v3election.NewElectionServer(v3c)
 	servLock := v3lock.NewLockServer(v3c)
 
+	var gs *grpc.Server
+	defer func() {
+		if err != nil && gs != nil {
+			gs.Stop()
+		}
+	}()
+
 	if sctx.insecure {
-		gs := v3rpc.Server(s, nil, gopts...)
-		sctx.grpcServerC <- gs
+		gs = v3rpc.Server(s, nil, gopts...)
 		v3electionpb.RegisterElectionServer(gs, servElection)
 		v3lockpb.RegisterLockServer(gs, servLock)
 		if sctx.serviceRegister != nil {
@@ -92,10 +107,8 @@ func (sctx *serveCtx) serve(
 		grpcl := m.Match(cmux.HTTP2())
 		go func() { errHandler(gs.Serve(grpcl)) }()
 
-		opts := []grpc.DialOption{
-			grpc.WithInsecure(),
-		}
-		gwmux, err := sctx.registerGateway(opts)
+		var gwmux *gw.ServeMux
+		gwmux, err = sctx.registerGateway([]grpc.DialOption{grpc.WithInsecure()})
 		if err != nil {
 			return err
 		}
@@ -103,11 +116,13 @@ func (sctx *serveCtx) serve(
 		httpmux := sctx.createMux(gwmux, handler)
 
 		srvhttp := &http.Server{
-			Handler:  httpmux,
+			Handler:  wrapMux(s, httpmux),
 			ErrorLog: logger, // do not log user error
 		}
 		httpl := m.Match(cmux.HTTP1())
 		go func() { errHandler(srvhttp.Serve(httpl)) }()
+
+		sctx.serversC <- &servers{grpc: gs, http: srvhttp}
 		plog.Noticef("serving insecure client requests on %s, this is strongly discouraged!", sctx.l.Addr().String())
 	}
 
@@ -116,8 +131,7 @@ func (sctx *serveCtx) serve(
 		if tlsErr != nil {
 			return tlsErr
 		}
-		gs := v3rpc.Server(s, tlscfg, gopts...)
-		sctx.grpcServerC <- gs
+		gs = v3rpc.Server(s, tlscfg, gopts...)
 		v3electionpb.RegisterElectionServer(gs, servElection)
 		v3lockpb.RegisterLockServer(gs, servLock)
 		if sctx.serviceRegister != nil {
@@ -130,29 +144,32 @@ func (sctx *serveCtx) serve(
 		dtls.InsecureSkipVerify = true
 		creds := credentials.NewTLS(dtls)
 		opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
-		gwmux, err := sctx.registerGateway(opts)
+		var gwmux *gw.ServeMux
+		gwmux, err = sctx.registerGateway(opts)
 		if err != nil {
 			return err
 		}
 
-		tlsl, lerr := transport.NewTLSListener(m.Match(cmux.Any()), tlsinfo)
-		if lerr != nil {
-			return lerr
+		var tlsl net.Listener
+		tlsl, err = transport.NewTLSListener(m.Match(cmux.Any()), tlsinfo)
+		if err != nil {
+			return err
 		}
 		// TODO: add debug flag; enable logging when debug flag is set
 		httpmux := sctx.createMux(gwmux, handler)
 
 		srv := &http.Server{
-			Handler:   httpmux,
+			Handler:   wrapMux(s, httpmux),
 			TLSConfig: tlscfg,
 			ErrorLog:  logger, // do not log user error
 		}
 		go func() { errHandler(srv.Serve(tlsl)) }()
 
+		sctx.serversC <- &servers{secure: true, grpc: gs, http: srv}
 		plog.Infof("serving client requests on %s", sctx.l.Addr().String())
 	}
 
-	close(sctx.grpcServerC)
+	close(sctx.serversC)
 	return m.Serve()
 }
 
@@ -214,11 +231,70 @@ func (sctx *serveCtx) createMux(gwmux *gw.ServeMux, handler http.Handler) *http.
 		httpmux.Handle(path, h)
 	}
 
-	httpmux.Handle("/v3alpha/", gwmux)
+	httpmux.Handle(
+		"/v3/",
+		wsproxy.WebsocketProxy(
+			gwmux,
+			wsproxy.WithRequestMutator(
+				// Default to the POST method for streams
+				func(incoming *http.Request, outgoing *http.Request) *http.Request {
+					outgoing.Method = "POST"
+					return outgoing
+				},
+			),
+		),
+	)
 	if handler != nil {
 		httpmux.Handle("/", handler)
 	}
 	return httpmux
+}
+
+// wrapMux wraps HTTP multiplexer:
+// - mutate gRPC gateway request paths
+// - check hostname whitelist
+// client HTTP requests goes here first
+func wrapMux(s *etcdserver.EtcdServer, mux *http.ServeMux) http.Handler {
+	return &httpWrapper{s: s, mux: mux}
+}
+
+type httpWrapper struct {
+	s   *etcdserver.EtcdServer
+	mux *http.ServeMux
+}
+
+func (m *httpWrapper) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	// redirect for backward compatibilities
+	if req != nil && req.URL != nil && strings.HasPrefix(req.URL.Path, "/v3beta/") {
+		req.URL.Path = strings.Replace(req.URL.Path, "/v3beta/", "/v3/", 1)
+	}
+
+	if req.TLS == nil { // check origin if client connection is not secure
+		host := httputil.GetHostname(req)
+		if !m.s.IsHostWhitelisted(host) {
+			plog.Warningf("rejecting HTTP request from %q to prevent DNS rebinding attacks", host)
+			// TODO: use Go's "http.StatusMisdirectedRequest" (421)
+			// https://github.com/golang/go/commit/4b8a7eafef039af1834ef9bfa879257c4a72b7b5
+			http.Error(rw, errCVE20185702(host), 421)
+			return
+		}
+	}
+
+	m.mux.ServeHTTP(rw, req)
+}
+
+// https://github.com/transmission/transmission/pull/468
+func errCVE20185702(host string) string {
+	return fmt.Sprintf(`
+etcd received your request, but the Host header was unrecognized.
+
+To fix this, choose one of the following options:
+- Enable TLS, then any HTTPS request will be allowed.
+- Add the hostname you want to use to the whitelist in settings.
+  - e.g. etcd --host-whitelist %q
+
+This requirement has been added to help prevent "DNS Rebinding" attacks (CVE-2018-5702).
+`, host)
 }
 
 func (sctx *serveCtx) registerUserHandler(s string, h http.Handler) {

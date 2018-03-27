@@ -17,7 +17,7 @@
   branch = "master"
   name = "github.com/coreos/etcd"
   packages = ["client","pkg/pathutil","pkg/srv","pkg/types","version"]
-  revision = "e1e236155c586c5caecf72f1152b90987c0fa8a5"
+  revision = "2cfe0d677471e7b264030925d229e825317c814f"
 
 [[projects]]
   name = "github.com/coreos/go-semver"
@@ -29,7 +29,7 @@
   branch = "master"
   name = "github.com/ltick/crypt"
   packages = ["backend","backend/consul","backend/etcd","backend/memcache","backend/mock","backend/zookeeper","encoding/secconf"]
-  revision = "3488f0621e59f8a7e1d529db9fc8be45536950bb"
+  revision = "e154e728e6ae7e20ac37d7cb5de39e1bec94ae34"
 
 [[projects]]
   branch = "master"
@@ -41,17 +41,17 @@
   branch = "master"
   name = "github.com/ugorji/go"
   packages = ["codec"]
-  revision = "8c0409fcbb70099c748d71f714529204975f6c3f"
+  revision = "54210f4e076c57f351166f0ed60e67d3fca57a36"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["cast5","openpgp","openpgp/armor","openpgp/elgamal","openpgp/errors","openpgp/packet","openpgp/s2k"]
-  revision = "81e90905daefcd6fd217b62423c0908922eadb30"
+  revision = "76eec36fa14229c4b25bb894c2d0e591527af429"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "273f4210a20a1d91433449e8346749602cdf9aa068163cd10a385bff0bf39c19"
+  inputs-digest = "aba37431c96b156e793f553efd4d80d29263c5a9d6246d49fdeb463b57cffa7a"
   solver-name = "gps-cdcl"
   solver-version = 1

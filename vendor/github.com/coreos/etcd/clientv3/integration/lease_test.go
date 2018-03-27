@@ -55,6 +55,11 @@ func TestLeaseGrant(t *testing.T) {
 
 	kv := clus.RandClient()
 
+	_, merr := lapi.Grant(context.Background(), clientv3.MaxLeaseTTL+1)
+	if merr != rpctypes.ErrLeaseTTLTooLarge {
+		t.Fatalf("err = %v, want %v", merr, rpctypes.ErrLeaseTTLTooLarge)
+	}
+
 	resp, err := lapi.Grant(context.Background(), 10)
 	if err != nil {
 		t.Errorf("failed to create lease %v", err)
@@ -299,7 +304,7 @@ func TestLeaseGrantErrConnClosed(t *testing.T) {
 	}
 
 	select {
-	case <-time.After(3 * time.Second):
+	case <-time.After(integration.RequestWaitTimeout):
 		t.Fatal("le.Grant took too long")
 	case <-donec:
 	}
@@ -325,7 +330,7 @@ func TestLeaseGrantNewAfterClose(t *testing.T) {
 		close(donec)
 	}()
 	select {
-	case <-time.After(3 * time.Second):
+	case <-time.After(integration.RequestWaitTimeout):
 		t.Fatal("le.Grant took too long")
 	case <-donec:
 	}
@@ -357,7 +362,7 @@ func TestLeaseRevokeNewAfterClose(t *testing.T) {
 		close(donec)
 	}()
 	select {
-	case <-time.After(3 * time.Second):
+	case <-time.After(integration.RequestWaitTimeout):
 		t.Fatal("le.Revoke took too long")
 	case <-donec:
 	}

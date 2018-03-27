@@ -311,7 +311,7 @@ func testWatchCancelRunning(t *testing.T, wctx *watchctx) {
 	select {
 	case <-time.After(time.Second):
 		t.Fatalf("took too long to cancel")
-	case v, ok := <-wctx.ch:
+	case _, ok := <-wctx.ch:
 		if !ok {
 			// closed before getting put; OK
 			break
@@ -320,8 +320,8 @@ func testWatchCancelRunning(t *testing.T, wctx *watchctx) {
 		select {
 		case <-time.After(time.Second):
 			t.Fatalf("took too long to close")
-		case v, ok = <-wctx.ch:
-			if ok {
+		case v, ok2 := <-wctx.ch:
+			if ok2 {
 				t.Fatalf("expected watcher channel to close, got %v", v)
 			}
 		}
@@ -678,7 +678,7 @@ func TestWatchErrConnClosed(t *testing.T) {
 	clus.TakeClient(0)
 
 	select {
-	case <-time.After(3 * time.Second):
+	case <-time.After(integration.RequestWaitTimeout):
 		t.Fatal("wc.Watch took too long")
 	case <-donec:
 	}
@@ -705,7 +705,7 @@ func TestWatchAfterClose(t *testing.T) {
 		close(donec)
 	}()
 	select {
-	case <-time.After(3 * time.Second):
+	case <-time.After(integration.RequestWaitTimeout):
 		t.Fatal("wc.Watch took too long")
 	case <-donec:
 	}
@@ -751,7 +751,7 @@ func TestWatchWithRequireLeader(t *testing.T) {
 		if resp.Err() != rpctypes.ErrNoLeader {
 			t.Fatalf("expected %v watch response error, got %+v", rpctypes.ErrNoLeader, resp)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(integration.RequestWaitTimeout):
 		t.Fatal("watch without leader took too long to close")
 	}
 
@@ -760,7 +760,7 @@ func TestWatchWithRequireLeader(t *testing.T) {
 		if ok {
 			t.Fatalf("expected closed channel, got response %v", resp)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(integration.RequestWaitTimeout):
 		t.Fatal("waited too long for channel to close")
 	}
 

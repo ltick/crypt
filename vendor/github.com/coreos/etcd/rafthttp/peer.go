@@ -23,7 +23,7 @@ import (
 	"github.com/coreos/etcd/pkg/types"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
-	"github.com/coreos/etcd/snap"
+	"github.com/coreos/etcd/raftsnap"
 
 	"golang.org/x/time/rate"
 )
@@ -63,7 +63,7 @@ type Peer interface {
 
 	// sendSnap sends the merged snapshot message to the remote peer. Its behavior
 	// is similar to send.
-	sendSnap(m snap.Message)
+	sendSnap(m raftsnap.Message)
 
 	// update updates the urls of remote peer.
 	update(urls types.URLs)
@@ -230,10 +230,11 @@ func (p *peer) send(m raftpb.Message) {
 			plog.MergeWarningf("dropped internal raft message to %s since %s's sending buffer is full (bad/overloaded network)", p.id, name)
 		}
 		plog.Debugf("dropped %s to %s since %s's sending buffer is full", m.Type, p.id, name)
+		sentFailures.WithLabelValues(types.ID(m.To).String()).Inc()
 	}
 }
 
-func (p *peer) sendSnap(m snap.Message) {
+func (p *peer) sendSnap(m raftsnap.Message) {
 	go p.snapSender.send(m)
 }
 

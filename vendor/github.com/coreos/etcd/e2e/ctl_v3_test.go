@@ -53,8 +53,10 @@ func dialWithSchemeTest(cx ctlCtx) {
 
 type ctlCtx struct {
 	t                 *testing.T
+	apiPrefix         string
 	cfg               etcdProcessClusterConfig
 	quotaBackendBytes int64
+	corruptFunc       func(string) error
 	noStrictReconfig  bool
 
 	epc *etcdProcessCluster
@@ -69,6 +71,8 @@ type ctlCtx struct {
 	user string
 	pass string
 
+	initialCorruptCheck bool
+
 	// for compaction
 	compactPhysical bool
 }
@@ -79,6 +83,7 @@ func (cx *ctlCtx) applyOpts(opts []ctlOption) {
 	for _, opt := range opts {
 		opt(cx)
 	}
+	cx.initialCorruptCheck = true
 }
 
 func withCfg(cfg etcdProcessClusterConfig) ctlOption {
@@ -105,8 +110,20 @@ func withCompactPhysical() ctlOption {
 	return func(cx *ctlCtx) { cx.compactPhysical = true }
 }
 
+func withInitialCorruptCheck() ctlOption {
+	return func(cx *ctlCtx) { cx.initialCorruptCheck = true }
+}
+
+func withCorruptFunc(f func(string) error) ctlOption {
+	return func(cx *ctlCtx) { cx.corruptFunc = f }
+}
+
 func withNoStrictReconfig() ctlOption {
 	return func(cx *ctlCtx) { cx.noStrictReconfig = true }
+}
+
+func withApiPrefix(p string) ctlOption {
+	return func(cx *ctlCtx) { cx.apiPrefix = p }
 }
 
 func withFlagByEnv() ctlOption {
@@ -131,6 +148,9 @@ func testCtl(t *testing.T, testFunc func(ctlCtx), opts ...ctlOption) {
 		ret.cfg.quotaBackendBytes = ret.quotaBackendBytes
 	}
 	ret.cfg.noStrictReconfig = ret.noStrictReconfig
+	if ret.initialCorruptCheck {
+		ret.cfg.initialCorruptCheck = ret.initialCorruptCheck
+	}
 
 	epc, err := newEtcdProcessCluster(&ret.cfg)
 	if err != nil {

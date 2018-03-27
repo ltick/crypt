@@ -22,6 +22,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -58,7 +59,6 @@ func wrapTLS(addr, scheme string, tlsinfo *TLSInfo, l net.Listener) (net.Listene
 type TLSInfo struct {
 	CertFile           string
 	KeyFile            string
-	CAFile             string
 	TrustedCAFile      string
 	ClientCertAuth     bool
 	CRLFile            string
@@ -76,10 +76,13 @@ type TLSInfo struct {
 	// parseFunc exists to simplify testing. Typically, parseFunc
 	// should be left nil. In that case, tls.X509KeyPair will be used.
 	parseFunc func([]byte, []byte) (tls.Certificate, error)
+
+	// AllowedCN is a CN which must be provided by a client.
+	AllowedCN string
 }
 
 func (info TLSInfo) String() string {
-	return fmt.Sprintf("cert = %s, key = %s, ca = %s, trusted-ca = %s, client-cert-auth = %v, crl-file = %s", info.CertFile, info.KeyFile, info.CAFile, info.TrustedCAFile, info.ClientCertAuth, info.CRLFile)
+	return fmt.Sprintf("cert = %s, key = %s, trusted-ca = %s, client-cert-auth = %v, crl-file = %s", info.CertFile, info.KeyFile, info.TrustedCAFile, info.ClientCertAuth, info.CRLFile)
 }
 
 func (info TLSInfo) Empty() bool {
@@ -174,6 +177,20 @@ func (info TLSInfo) baseConfig() (*tls.Config, error) {
 		MinVersion:   tls.VersionTLS12,
 		ServerName:   info.ServerName,
 	}
+
+	if info.AllowedCN != "" {
+		cfg.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			for _, chains := range verifiedChains {
+				if len(chains) != 0 {
+					if info.AllowedCN == chains[0].Subject.CommonName {
+						return nil
+					}
+				}
+			}
+			return errors.New("CommonName authentication failed")
+		}
+	}
+
 	// this only reloads certs when there's a client request
 	// TODO: support server-side refresh (e.g. inotify, SIGHUP), caching
 	cfg.GetCertificate = func(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -188,9 +205,6 @@ func (info TLSInfo) baseConfig() (*tls.Config, error) {
 // cafiles returns a list of CA file paths.
 func (info TLSInfo) cafiles() []string {
 	cs := make([]string, 0)
-	if info.CAFile != "" {
-		cs = append(cs, info.CAFile)
-	}
 	if info.TrustedCAFile != "" {
 		cs = append(cs, info.TrustedCAFile)
 	}
@@ -205,13 +219,13 @@ func (info TLSInfo) ServerConfig() (*tls.Config, error) {
 	}
 
 	cfg.ClientAuth = tls.NoClientCert
-	if info.CAFile != "" || info.ClientCertAuth {
+	if info.TrustedCAFile != "" || info.ClientCertAuth {
 		cfg.ClientAuth = tls.RequireAndVerifyClientCert
 	}
 
-	CAFiles := info.cafiles()
-	if len(CAFiles) > 0 {
-		cp, err := tlsutil.NewCertPool(CAFiles)
+	cs := info.cafiles()
+	if len(cs) > 0 {
+		cp, err := tlsutil.NewCertPool(cs)
 		if err != nil {
 			return nil, err
 		}
@@ -239,9 +253,9 @@ func (info TLSInfo) ClientConfig() (*tls.Config, error) {
 	}
 	cfg.InsecureSkipVerify = info.InsecureSkipVerify
 
-	CAFiles := info.cafiles()
-	if len(CAFiles) > 0 {
-		cfg.RootCAs, err = tlsutil.NewCertPool(CAFiles)
+	cs := info.cafiles()
+	if len(cs) > 0 {
+		cfg.RootCAs, err = tlsutil.NewCertPool(cs)
 		if err != nil {
 			return nil, err
 		}

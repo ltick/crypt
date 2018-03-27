@@ -53,6 +53,7 @@ func TestMetricDbSizeDefrag(t *testing.T) {
 	numPuts := 25 // large enough to write more than 1 page
 	putreq := &pb.PutRequest{Key: []byte("k"), Value: make([]byte, 4096)}
 	for i := 0; i < numPuts; i++ {
+		time.Sleep(10 * time.Millisecond) // to execute multiple backend txn
 		if _, err := kvc.Put(context.TODO(), putreq); err != nil {
 			t.Fatal(err)
 		}
@@ -61,6 +62,7 @@ func TestMetricDbSizeDefrag(t *testing.T) {
 	// wait for backend txn sync
 	time.Sleep(500 * time.Millisecond)
 
+	expected := numPuts * len(putreq.Value)
 	beforeDefrag, err := clus.Members[0].Metric("etcd_debugging_mvcc_db_total_size_in_bytes")
 	if err != nil {
 		t.Fatal(err)
@@ -69,29 +71,69 @@ func TestMetricDbSizeDefrag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if expected := numPuts * len(putreq.Value); bv < expected {
+	if bv < expected {
 		t.Fatalf("expected db size greater than %d, got %d", expected, bv)
 	}
-
-	// clear out historical keys
-	creq := &pb.CompactionRequest{Revision: int64(numPuts), Physical: true}
-	if _, err := kvc.Compact(context.TODO(), creq); err != nil {
+	beforeDefragInUse, err := clus.Members[0].Metric("etcd_debugging_mvcc_db_total_size_in_use_in_bytes")
+	if err != nil {
 		t.Fatal(err)
+	}
+	biu, err := strconv.Atoi(beforeDefragInUse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if biu < expected {
+		t.Fatalf("expected db size in use is greater than %d, got %d", expected, biu)
+	}
+
+	// clear out historical keys, in use bytes should free pages
+	creq := &pb.CompactionRequest{Revision: int64(numPuts), Physical: true}
+	if _, kerr := kvc.Compact(context.TODO(), creq); kerr != nil {
+		t.Fatal(kerr)
+	}
+
+	// Put to move PendingPages to FreePages
+	if _, err = kvc.Put(context.TODO(), putreq); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	afterCompactionInUse, err := clus.Members[0].Metric("etcd_debugging_mvcc_db_total_size_in_use_in_bytes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aciu, err := strconv.Atoi(afterCompactionInUse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if biu <= aciu {
+		t.Fatalf("expected less than %d, got %d after compaction", biu, aciu)
 	}
 
 	// defrag should give freed space back to fs
 	mc.Defragment(context.TODO(), &pb.DefragmentRequest{})
+
 	afterDefrag, err := clus.Members[0].Metric("etcd_debugging_mvcc_db_total_size_in_bytes")
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	av, err := strconv.Atoi(afterDefrag)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if bv <= av {
 		t.Fatalf("expected less than %d, got %d after defrag", bv, av)
+	}
+
+	afterDefragInUse, err := clus.Members[0].Metric("etcd_debugging_mvcc_db_total_size_in_use_in_bytes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adiu, err := strconv.Atoi(afterDefragInUse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adiu > av {
+		t.Fatalf("db size in use (%d) is expected less than db size (%d) after defrag", adiu, av)
 	}
 }
