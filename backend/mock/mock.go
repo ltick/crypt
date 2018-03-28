@@ -19,7 +19,7 @@ func New(machines []string) (*Client, error) {
 	if mockedStore == nil {
 		mockedStore = make(map[string][]byte, 2)
 	}
-	return &Client{nil}, nil
+	return &Client{}, nil
 }
 
 func (c *Client) Get(key string) ([]byte, error) {

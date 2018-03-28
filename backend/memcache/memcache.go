@@ -16,7 +16,7 @@ type Client struct{
 func New(machines []string) (*Client, error) {
 	return &Client{
 		client: memcache.New(machines...),
-		nil,
+		logger: nil,
 	}, nil
 }
 

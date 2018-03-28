@@ -24,7 +24,11 @@ func New(machines []string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{client.KV(), 0, nil}, nil
+	return &Client{
+		client:client.KV(),
+		waitIndex: 0,
+		logger: nil,
+	}, nil
 }
 
 func (c *Client) Get(key string) ([]byte, error) {

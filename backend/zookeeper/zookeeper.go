@@ -39,7 +39,7 @@ func New(machines []string, user string, password string) (*Client, error) {
 		user:     user,
 		password: password,
 		errors:   make(chan error, 1),
-		nil,
+		logger:   nil,
 	}
 	if err = client.addAuth(); err != nil {
 		return nil, err
@@ -80,7 +80,7 @@ func (c *Client) List(key string) (backend.KVPairs, error) {
 		if err != nil {
 			return nil, errors.New("zookeeper: List " + key + " error")
 		}
-		list = append(list, &backend.KVPair{Key:listKey, Value:listValue})
+		list = append(list, &backend.KVPair{Key: listKey, Value: listValue})
 	}
 	return list, nil
 }
