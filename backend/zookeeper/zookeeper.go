@@ -68,21 +68,21 @@ func (c *Client) Get(key string) ([]byte, error) {
 }
 
 func (c *Client) List(key string) (backend.KVPairs, error) {
-	list := make(backend.KVPairs, 0)
 	listKeys, _, err := c.client.Children(key)
 	if err != nil {
 		c.errors <- err
-		return nil, errors.New("zookeeper: List " + key + " error: " + err.Error())
+		return nil, err
 	}
-	for _, listKey := range listKeys {
+	ret := make(backend.KVPairs, len(listKeys), len(listKeys))
+	for i, listKey := range listKeys {
 		listValue, err := c.Get(key + "/" + listKey)
 		if err != nil {
 			c.errors <- err
-			return nil, errors.New("zookeeper: List " + key + " error: " + err.Error())
+			return nil, err
 		}
-		list = append(list, &backend.KVPair{Key: listKey, Value: listValue})
+		ret[i] = &backend.KVPair{Key: listKey, Value: listValue}
 	}
-	return list, nil
+	return ret, nil
 }
 
 func (c *Client) Set(key string, value []byte) error {
