@@ -3,7 +3,6 @@ package zookeeper
 import (
 	"strings"
 	"time"
-
 	"context"
 	"errors"
 
@@ -63,7 +62,7 @@ func (c *Client) Get(key string) ([]byte, error) {
 	value, _, err := c.client.Get(key)
 	if err != nil {
 		c.errors <- err
-		return nil, errors.New("zookeeper: Get " + key + " error")
+		return nil, errors.New("zookeeper: Get " + key + " error: " + err.Error())
 	}
 	return value, nil
 }
@@ -73,12 +72,13 @@ func (c *Client) List(key string) (backend.KVPairs, error) {
 	listKeys, _, err := c.client.Children(key)
 	if err != nil {
 		c.errors <- err
-		return nil, errors.New("zookeeper: List " + key + " error")
+		return nil, errors.New("zookeeper: List " + key + " error: " + err.Error())
 	}
 	for _, listKey := range listKeys {
-		listValue, err := c.Get(listKey)
+		listValue, err := c.Get(key + "/" + listKey)
 		if err != nil {
-			return nil, errors.New("zookeeper: List " + key + " error")
+			c.errors <- err
+			return nil, errors.New("zookeeper: List " + key + " error: " + err.Error())
 		}
 		list = append(list, &backend.KVPair{Key: listKey, Value: listValue})
 	}
@@ -95,7 +95,7 @@ func (c *Client) Set(key string, value []byte) error {
 			}
 		} else {
 			c.errors <- err
-			return errors.New("zookeeper: Set " + key + " error")
+			return errors.New("zookeeper: Set " + key + " error: " + err.Error())
 		}
 	}
 	_, err = c.client.Set(key, value, stat.Version)
