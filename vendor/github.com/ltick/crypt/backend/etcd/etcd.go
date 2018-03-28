@@ -25,7 +25,12 @@ func New(machines []string) (*Client, error) {
 		return nil, fmt.Errorf("creating new etcd client for crypt.backend.Client: %v", err)
 	}
 	keysAPI := goetcd.NewKeysAPI(newClient)
-	return &Client{client: newClient, keysAPI: keysAPI, waitIndex: 0}, nil
+	return &Client{
+		client: newClient,
+		keysAPI: keysAPI,
+		waitIndex: 0,
+		logger: nil,
+	}, nil
 }
 
 func (c *Client) Get(key string) ([]byte, error) {
