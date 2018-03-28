@@ -39,6 +39,7 @@ func New(machines []string, user string, password string) (*Client, error) {
 		user:     user,
 		password: password,
 		errors:   make(chan error, 1),
+		nil,
 	}
 	if err = client.addAuth(); err != nil {
 		return nil, err
