@@ -198,6 +198,18 @@ func (c standardConfigManager) Set(key string, value []byte) error {
 	return err
 }
 
+// Delete will remove a key from the data store
+func (c configManager) Delete(key string) error {
+	err := c.store.Delete(key)
+	return err
+}
+
+// Delete will remove a key from the data store
+func (c standardConfigManager) Delete(key string) error {
+	err := c.store.Delete(key)
+	return err
+}
+
 type Response struct {
 	Value []byte
 	Error error
