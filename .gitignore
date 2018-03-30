@@ -27,3 +27,4 @@ _testmain.go
 .secring.gpg
 
 Gopkg.lock
+vendor
