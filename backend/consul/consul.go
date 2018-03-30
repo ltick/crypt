@@ -64,6 +64,12 @@ func (c *Client) Set(key string, value []byte) error {
 	return err
 }
 
+func (c *Client) Delete(key string) error {
+	key = strings.TrimPrefix(key, "/")
+	_, err := c.client.Delete(key, nil)
+	return err
+}
+
 func (c *Client) Watch(key string, stop chan bool) <-chan *backend.Response {
 	respChan := make(chan *backend.Response, 0)
 	go func() {

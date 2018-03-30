@@ -35,6 +35,9 @@ type Store interface {
 	// Watch monitors a K/V store for changes to key.
 	Watch(key string, stop chan bool) <-chan *Response
 
+	// Delete the provided key.
+	Delete(key string) error
+
 	// SetLogger set logger.
 	SetLogger(l Logger)
 }

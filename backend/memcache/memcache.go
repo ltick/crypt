@@ -50,6 +50,14 @@ func (c *Client) Set(key string, value []byte) error {
 	return nil
 }
 
+func (c *Client) Delete(key string) error {
+	err := c.client.Delete(key)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *Client) Watch(key string, stop chan bool) <-chan *backend.Response {
 	respChan := make(chan *backend.Response, 0)
 	go func() {
