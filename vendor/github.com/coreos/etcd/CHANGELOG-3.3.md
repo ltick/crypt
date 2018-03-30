@@ -1,6 +1,6 @@
 
 
-## [v3.3.3](https://github.com/coreos/etcd/releases/tag/v3.3.3) (TBD)
+## [v3.3.3](https://github.com/coreos/etcd/releases/tag/v3.3.3) (2018-03-29)
 
 See [code changes](https://github.com/coreos/etcd/compare/v3.3.2...v3.3.3) and [v3.3 upgrade guide](https://github.com/coreos/etcd/blob/master/Documentation/upgrades/upgrade_3_3.md) for any breaking changes.
 
@@ -25,7 +25,7 @@ See [code changes](https://github.com/coreos/etcd/compare/v3.3.2...v3.3.3) and [
 
 ### Go
 
-- Compile with [*Go 1.9.4*](https://golang.org/doc/devel/release.html#go1.9).
+- Compile with [*Go 1.9.5*](https://golang.org/doc/devel/release.html#go1.9).
 
 
 ## [v3.3.2](https://github.com/coreos/etcd/releases/tag/v3.3.2) (2018-03-08)

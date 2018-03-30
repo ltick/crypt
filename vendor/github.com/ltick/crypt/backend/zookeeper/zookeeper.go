@@ -1,10 +1,10 @@
 package zookeeper
 
 import (
-	"strings"
-	"time"
 	"context"
 	"errors"
+	"strings"
+	"time"
 
 	"github.com/ltick/crypt/backend"
 	"github.com/samuel/go-zookeeper/zk"
@@ -100,7 +100,25 @@ func (c *Client) Set(key string, value []byte) error {
 	}
 	_, err = c.client.Set(key, value, stat.Version)
 	if err != nil {
-		return err
+		return errors.New("zookeeper: Set " + key + " error: " + err.Error())
+	}
+	return nil
+}
+
+func (c *Client) Delete(key string) error {
+	_, stat, err := c.client.Get(key)
+	if err != nil {
+		if err == zk.ErrNoNode {
+			return nil
+		} else {
+			c.errors <- err
+			return errors.New("zookeeper: Delete " + key + " error: " + err.Error())
+		}
+	}
+	err = c.client.Delete(key, stat.Version)
+	if err != nil {
+		c.errors <- err
+		return errors.New("zookeeper: Delete " + key + " error: " + err.Error())
 	}
 	return nil
 }

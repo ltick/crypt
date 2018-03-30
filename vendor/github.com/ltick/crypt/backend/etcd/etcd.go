@@ -26,10 +26,10 @@ func New(machines []string) (*Client, error) {
 	}
 	keysAPI := goetcd.NewKeysAPI(newClient)
 	return &Client{
-		client: newClient,
-		keysAPI: keysAPI,
+		client:    newClient,
+		keysAPI:   keysAPI,
 		waitIndex: 0,
-		logger: nil,
+		logger:    nil,
 	}, nil
 }
 
@@ -77,6 +77,15 @@ func (c *Client) Set(key string, value []byte) error {
 
 func (c *Client) SetWithContext(ctx context.Context, key string, value []byte) error {
 	_, err := c.keysAPI.Set(ctx, key, string(value), nil)
+	return err
+}
+
+func (c *Client) Delete(key string) error {
+	return c.DeleteWithContext(context.TODO(), key)
+}
+
+func (c *Client) DeleteWithContext(ctx context.Context, key string) error {
+	_, err := c.keysAPI.Delete(ctx, key, nil)
 	return err
 }
 
