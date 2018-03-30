@@ -210,6 +210,14 @@ func (c standardConfigManager) Delete(key string) error {
 	return err
 }
 
+func (c configManager) SetLogger(l backend.Logger) {
+	c.store.SetLogger(l)
+}
+
+func (c standardConfigManager) SetLogger(l backend.Logger) {
+	c.store.SetLogger(l)
+}
+
 type Response struct {
 	Value []byte
 	Error error
