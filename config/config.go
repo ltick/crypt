@@ -263,3 +263,7 @@ func (c standardConfigManager) Watch(key string, stop chan bool) <-chan *Respons
 	}()
 	return resp
 }
+
+func KeyNotFound(err error) bool {
+	return backend.KeyNotFound(err)
+}
