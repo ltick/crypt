@@ -1,6 +1,8 @@
 // Package backend provides the K/V store interface for crypt backends.
 package backend
 
+import "strings"
+
 // Logger is an interface that can be implemented to provide custom log output.
 type Logger interface {
 	Printf(string, ...interface{})
@@ -40,4 +42,8 @@ type Store interface {
 
 	// SetLogger set logger.
 	SetLogger(l Logger)
+}
+
+func KeyNotFound(err error) bool {
+	return strings.Contains(err.Error(), "key was not found error")
 }

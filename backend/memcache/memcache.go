@@ -26,7 +26,7 @@ func (c *Client) Get(key string) ([]byte, error) {
 		return nil, err
 	}
 	if kv == nil {
-		return nil, fmt.Errorf("Key ( %s ) was not found.", key)
+		return nil, fmt.Errorf("memcache: key was not found error: %s not found.", key)
 	}
 	return kv.Value, err
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ltick/crypt/backend"
 	"github.com/samuel/go-zookeeper/zk"
+	"fmt"
 )
 
 var connectTimeout time.Duration = 120 * time.Second
@@ -62,7 +63,7 @@ func (c *Client) Get(key string) ([]byte, error) {
 	value, _, err := c.client.Get(key)
 	if err != nil {
 		c.errors <- err
-		return nil, errors.New("zookeeper: Get " + key + " error: " + err.Error())
+		return nil, fmt.Errorf("zookeeper: key was not found error: %s.", err.Error())
 	}
 	return value, nil
 }

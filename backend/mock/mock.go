@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ltick/crypt/backend"
+	"fmt"
 )
 
 var mockedStore map[string][]byte
@@ -26,7 +27,7 @@ func (c *Client) Get(key string) ([]byte, error) {
 	if v, ok := mockedStore[key]; ok {
 		return v, nil
 	}
-	err := errors.New("Could not find key: " + key)
+	err := fmt.Errorf("mock: key was not found error: %s not found.", key)
 	return nil, err
 }
 

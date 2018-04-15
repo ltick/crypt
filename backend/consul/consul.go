@@ -37,7 +37,7 @@ func (c *Client) Get(key string) ([]byte, error) {
 		return nil, err
 	}
 	if kv == nil {
-		return nil, fmt.Errorf("Key ( %s ) was not found.", key)
+		return nil, fmt.Errorf("consul: key was not found error: %s not found.", key)
 	}
 	return kv.Value, nil
 }

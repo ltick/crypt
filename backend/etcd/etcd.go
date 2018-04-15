@@ -22,7 +22,7 @@ func New(machines []string) (*Client, error) {
 		Endpoints: machines,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("creating new etcd client for crypt.backend.Client: %v", err)
+		return nil, fmt.Errorf("etcd: creating new etcd client for crypt.backend.Client: %v", err)
 	}
 	keysAPI := goetcd.NewKeysAPI(newClient)
 	return &Client{
@@ -40,6 +40,9 @@ func (c *Client) Get(key string) ([]byte, error) {
 func (c *Client) GetWithContext(ctx context.Context, key string) ([]byte, error) {
 	resp, err := c.keysAPI.Get(ctx, key, nil)
 	if err != nil {
+		if eerr, ok := err.(*goetcd.Error); ok && eerr.Code == goetcd.ErrorCodeKeyNotFound {
+			return nil, fmt.Errorf("etcd: key was not found error: %s not found.", key)
+		}
 		return nil, err
 	}
 	return []byte(resp.Node.Value), nil
